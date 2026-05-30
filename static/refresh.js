@@ -3,9 +3,33 @@ const STORAGE_KEYS = {
   categories: "ctgptm.mail.categories",
   refreshQueue: "ctgptm.mail.refreshQueue",
   refreshSettings: "ctgptm.mail.refreshSettings",
+  workspaceId: "ctgptm.workspaceId",
 };
 
 const EMPTY_CATEGORY_LABEL = "未分组";
+const MOJIBAKE_TEXT_FIXES = new Map([
+  ["\u699b\u6a3f\ue17b", "默认"],
+  ["\u93c8\ue044\u578e\u7f01\u003f", "未分组"],
+  ["\u6960\u5c83\u7609\u942e\u003f", "验证码"],
+  ["\u95ad\u20ac\u7487\u003f", "邀请"],
+  ["\u7039\u590a\u53cf", "安全"],
+  ["\u95b2\u5d87\u7586", "重置"],
+  ["\u7490\ufe40\u5d1f", "账单"],
+  ["\u95ab\u6c31\u7161", "通知"],
+  ["\u704f\u4f7a\ue6e6", "封禁"],
+  ["\u934f\u6735\u7cac", "其他"],
+  ["\u9477\ue044\u59e9\u7487\u55d7\u57c6", "自动识别"],
+  ["\u6d93\u5b58\u6902\u95ad\ue1be\ue188", "临时邮箱"],
+  ["\u95ad\ue1be\ue188", "邮箱"],
+  ["\u9352\u950b\u67ca", "刷新"],
+  ["\u6fb6\u8fab\u89e6", "失败"],
+  ["\u93b4\u612c\u59db", "成功"],
+  ["\u7035\u714e\u53c6", "导入"],
+  ["\u9352\u72bb\u6ace", "删除"],
+  ["\u7ee0\uff04\u608a", "管理"],
+]);
+repairLocalStorageKeys(Object.values(STORAGE_KEYS));
+
 const storedRefreshQueue = loadJson(STORAGE_KEYS.refreshQueue, []);
 const normalizedRefreshQueue = normalizeQueue(storedRefreshQueue);
 if (JSON.stringify(storedRefreshQueue) !== JSON.stringify(normalizedRefreshQueue)) {
@@ -88,6 +112,7 @@ if (els.loginStrategy) els.loginStrategy.value = "protocol";
 if (els.taskMode) els.taskMode.value = "login";
 
 const authQueryToken = new URLSearchParams(window.location.search).get("token") || "";
+const workspaceId = getWorkspaceId();
 if (authQueryToken) {
   localStorage.setItem("ctgptm.admin.toolToken", authQueryToken);
 }
@@ -95,7 +120,7 @@ if (authQueryToken) {
 function loadJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
+    return raw ? repairStoredJson(JSON.parse(raw)) : fallback;
   } catch {
     return fallback;
   }
@@ -105,12 +130,58 @@ function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function getWorkspaceId() {
+  const existing = localStorage.getItem(STORAGE_KEYS.workspaceId) || "";
+  if (/^[A-Za-z0-9][A-Za-z0-9_.-]{5,63}$/.test(existing)) return existing;
+  const next = `ws_${crypto.randomUUID().replace(/-/g, "")}`;
+  localStorage.setItem(STORAGE_KEYS.workspaceId, next);
+  return next;
+}
+
+function repairMojibakeText(value) {
+  if (typeof value !== "string" || !value) return value;
+  let text = value;
+  MOJIBAKE_TEXT_FIXES.forEach((fixed, broken) => {
+    text = text.split(broken).join(fixed);
+  });
+  return text;
+}
+
+function repairStoredJson(value) {
+  if (typeof value === "string") return repairMojibakeText(value);
+  if (Array.isArray(value)) return value.map((item) => repairStoredJson(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, repairStoredJson(item)]));
+  }
+  return value;
+}
+
+function repairLocalStorageKeys(keys) {
+  keys.forEach((key) => {
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      const repaired = repairStoredJson(parsed);
+      if (JSON.stringify(parsed) !== JSON.stringify(repaired)) {
+        localStorage.setItem(key, JSON.stringify(repaired));
+      }
+    } catch {
+      const repaired = repairMojibakeText(raw);
+      if (repaired !== raw) localStorage.setItem(key, repaired);
+    }
+  });
+}
+
 function rememberedAdminToken() {
   return authQueryToken || localStorage.getItem("ctgptm.admin.toolToken") || "";
 }
 
 function apiHeaders() {
-  const headers = { "Content-Type": "application/json" };
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Workspace-Id": workspaceId,
+  };
   const token = rememberedAdminToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -1217,7 +1288,7 @@ function downloadJsonFile(fileName, value) {
 
 async function savedRefreshRows() {
   try {
-    const response = await fetch("/api/refresh-results", { headers: apiHeaders(), cache: "no-store" });
+    const response = await fetch("/client-api/refresh-results", { headers: apiHeaders(), cache: "no-store" });
     const data = await readJsonResponse(response, "读取已保存刷新结果失败");
     return (data.results || [])
       .filter((item) => item?.auth_file)
@@ -1237,7 +1308,7 @@ async function savedRefreshRows() {
 
 async function syncRefreshResults() {
   try {
-    const response = await fetch("/api/refresh-results", { headers: apiHeaders(), cache: "no-store" });
+    const response = await fetch("/client-api/refresh-results", { headers: apiHeaders(), cache: "no-store" });
     const data = await readJsonResponse(response, "读取已保存刷新结果失败");
     state.savedRefreshResults = new Map(
       (data.results || [])
@@ -1358,15 +1429,14 @@ async function importTempCredentialsToServer(items, baseUrl, sitePassword) {
     baseUrl,
     sitePassword,
   ].join("----")).join("\n");
-  const response = await fetch("/api/temp-addresses/import", {
-    method: "POST",
-    headers: apiHeaders(),
-    body: JSON.stringify({
-      text,
-      replace_existing: true,
-    }),
-  });
-  await readJsonResponse(response, "导入临时邮箱失败");
+  mergeServerAccountsSnapshot(items.map((item) => normalizeServerAccount({
+    email: item.email,
+    jwt: item.jwt,
+    base_url: baseUrl,
+    site_password: sitePassword,
+    label: "临时邮箱",
+  }, "temp")).filter(Boolean));
+  saveJson(STORAGE_KEYS.accounts, state.accounts);
 }
 
 async function syncTempCredentialsForQueue() {
@@ -1392,7 +1462,7 @@ async function syncTempCredentialsForQueue() {
   try {
     const response = await fetch("/client-api/temp-addresses/sync-jwts", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(),
       body: JSON.stringify({
         base_url: baseUrl,
         admin_password: adminPassword,
@@ -1435,7 +1505,7 @@ async function importPickupCredentials() {
   try {
     const response = await fetch("/client-api/accounts/import-pickup", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(),
       body: JSON.stringify({
         text,
         replace_existing: true,
@@ -1486,11 +1556,10 @@ function mergeServerAccountsSnapshot(items) {
 }
 
 async function syncAccountsFromServer({ quiet = false } = {}) {
-  if (!rememberedAdminToken()) return;
   try {
     const [accountsResponse, tempResponse] = await Promise.all([
-      fetch("/api/accounts", { headers: apiHeaders(), cache: "no-store" }),
-      fetch("/api/temp-addresses", { headers: apiHeaders(), cache: "no-store" }),
+      fetch("/client-api/accounts", { headers: apiHeaders(), cache: "no-store" }),
+      fetch("/client-api/temp-addresses", { headers: apiHeaders(), cache: "no-store" }),
     ]);
     const [accountsData, tempData] = await Promise.all([
       accountsResponse.json(),

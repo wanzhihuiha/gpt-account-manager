@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import hashlib
@@ -63,13 +63,14 @@ def normalize_cpa_base_url(value: str) -> str:
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 DATA_DIR = ROOT / "data"
+WORKSPACES_DIR = DATA_DIR / "workspaces"
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 MESSAGES_FILE = DATA_DIR / "messages.json"
 TEMP_ADDRESSES_FILE = DATA_DIR / "temp_addresses.json"
 REFRESH_RESULTS_FILE = DATA_DIR / "refresh_results.json"
 LOGIN_HISTORY_FILE = DATA_DIR / "login_history.json"
 LOGIN_DEBUG_DIR = DATA_DIR / "login_debug"
-APP_VERSION = "20260530-fixed-reasons"
+APP_VERSION = "20260531-workspace-isolation"
 
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
@@ -262,6 +263,33 @@ def file_item_count(path: Path, key: str) -> int:
     return len(value) if isinstance(value, list) else 0
 
 
+WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{5,63}$")
+
+
+def normalize_workspace_id(value: Any) -> str:
+    text = coerce_text(value)
+    if not text or not WORKSPACE_ID_PATTERN.fullmatch(text):
+        return "public"
+    return text
+
+
+def workspace_dir(workspace_id: str) -> Path:
+    workspace = normalize_workspace_id(workspace_id)
+    return WORKSPACES_DIR / workspace
+
+
+def workspace_file(workspace_id: str, filename: str) -> Path:
+    return workspace_dir(workspace_id) / filename
+
+
+def workspace_counts(workspace_id: str) -> dict[str, int]:
+    return {
+        "microsoft_accounts": file_item_count(workspace_file(workspace_id, "accounts.json"), "accounts"),
+        "temp_addresses": file_item_count(workspace_file(workspace_id, "temp_addresses.json"), "addresses"),
+        "messages": file_item_count(workspace_file(workspace_id, "messages.json"), "messages"),
+    }
+
+
 def health_payload() -> dict[str, Any]:
     return {
         "ok": True,
@@ -290,6 +318,10 @@ def health_payload() -> dict[str, Any]:
             "temp_addresses": file_item_count(TEMP_ADDRESSES_FILE, "addresses"),
             "messages": file_item_count(MESSAGES_FILE, "messages"),
         },
+        "storage": {
+            "workspace_scoped": True,
+            "workspace_root": str(WORKSPACES_DIR),
+        },
         "paths": {
             "root": str(ROOT),
             "static": str(STATIC_DIR),
@@ -298,12 +330,12 @@ def health_payload() -> dict[str, Any]:
     }
 
 
-def load_accounts() -> dict[str, MailAccount]:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not ACCOUNTS_FILE.exists():
+def load_accounts(path: Path = ACCOUNTS_FILE) -> dict[str, MailAccount]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
         return {}
     try:
-        raw = json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8-sig"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return {}
     rows = raw.get("accounts", []) if isinstance(raw, dict) else raw
@@ -321,23 +353,23 @@ def load_accounts() -> dict[str, MailAccount]:
     return accounts
 
 
-def save_accounts(accounts: dict[str, MailAccount]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def save_accounts(accounts: dict[str, MailAccount], path: Path = ACCOUNTS_FILE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "updated_at": iso_now(),
         "accounts": [asdict(acc) for acc in sorted(accounts.values(), key=lambda a: a.email.lower())],
     }
-    tmp = ACCOUNTS_FILE.with_suffix(".json.tmp")
+    tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(ACCOUNTS_FILE)
+    tmp.replace(path)
 
 
-def load_temp_addresses() -> dict[str, TempAddress]:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not TEMP_ADDRESSES_FILE.exists():
+def load_temp_addresses(path: Path = TEMP_ADDRESSES_FILE) -> dict[str, TempAddress]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
         return {}
     try:
-        raw = json.loads(TEMP_ADDRESSES_FILE.read_text(encoding="utf-8-sig"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return {}
     rows = raw.get("addresses", []) if isinstance(raw, dict) else raw
@@ -357,15 +389,15 @@ def load_temp_addresses() -> dict[str, TempAddress]:
     return addresses
 
 
-def save_temp_addresses(addresses: dict[str, TempAddress]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def save_temp_addresses(addresses: dict[str, TempAddress], path: Path = TEMP_ADDRESSES_FILE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "updated_at": iso_now(),
         "addresses": [asdict(addr) for addr in sorted(addresses.values(), key=lambda a: a.email.lower())],
     }
-    tmp = TEMP_ADDRESSES_FILE.with_suffix(".json.tmp")
+    tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(TEMP_ADDRESSES_FILE)
+    tmp.replace(path)
 
 
 def message_key(message: dict[str, Any]) -> str:
@@ -379,39 +411,39 @@ def message_key(message: dict[str, Any]) -> str:
     ])
 
 
-def load_messages() -> list[dict[str, Any]]:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not MESSAGES_FILE.exists():
+def load_messages(path: Path = MESSAGES_FILE) -> list[dict[str, Any]]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
         return []
     try:
-        raw = json.loads(MESSAGES_FILE.read_text(encoding="utf-8-sig"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return []
     rows = raw.get("messages", []) if isinstance(raw, dict) else raw
     return [item for item in rows if isinstance(item, dict)] if isinstance(rows, list) else []
 
 
-def save_messages(messages: list[dict[str, Any]]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def save_messages(messages: list[dict[str, Any]], path: Path = MESSAGES_FILE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     trimmed = sorted(messages, key=message_sort_value, reverse=True)[:2000]
     payload = {
         "updated_at": iso_now(),
         "messages": trimmed,
     }
-    tmp = MESSAGES_FILE.with_suffix(".json.tmp")
+    tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(MESSAGES_FILE)
+    tmp.replace(path)
 
 
-def upsert_messages(incoming: list[dict[str, Any]]) -> None:
+def upsert_messages(incoming: list[dict[str, Any]], path: Path = MESSAGES_FILE) -> None:
     if not incoming:
         return
-    cache = {message_key(message): message for message in load_messages()}
+    cache = {message_key(message): message for message in load_messages(path)}
     now = iso_now()
     for message in incoming:
         message.setdefault("cached_at", now)
         cache[message_key(message)] = message
-    save_messages(list(cache.values()))
+    save_messages(list(cache.values()), path)
 
 
 def message_sort_value(message: dict[str, Any]) -> str:
@@ -430,28 +462,28 @@ REFRESH_RESULTS_LIMIT = 500
 LOGIN_HISTORY_LIMIT = 300
 
 
-def load_refresh_results() -> list[dict[str, Any]]:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not REFRESH_RESULTS_FILE.exists():
+def load_refresh_results(path: Path = REFRESH_RESULTS_FILE) -> list[dict[str, Any]]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
         return []
     try:
-        raw = json.loads(REFRESH_RESULTS_FILE.read_text(encoding="utf-8-sig"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return []
     rows = raw.get("results") if isinstance(raw, dict) else raw
     return [item for item in rows if isinstance(item, dict)] if isinstance(rows, list) else []
 
 
-def save_refresh_results(results: list[dict[str, Any]]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def save_refresh_results(results: list[dict[str, Any]], path: Path = REFRESH_RESULTS_FILE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     trimmed = results[-REFRESH_RESULTS_LIMIT:]
     payload = {"updated_at": iso_now(), "results": trimmed}
-    tmp = REFRESH_RESULTS_FILE.with_suffix(".json.tmp")
+    tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(REFRESH_RESULTS_FILE)
+    tmp.replace(path)
 
 
-def append_refresh_result(auth_file: dict[str, Any], email: str = "", job_id: str = "") -> None:
+def append_refresh_result(auth_file: dict[str, Any], email: str = "", job_id: str = "", path: Path = REFRESH_RESULTS_FILE) -> None:
     """Persist a successful login refresh result to disk."""
     entry = {
         "email": email or auth_file.get("email", ""),
@@ -461,35 +493,35 @@ def append_refresh_result(auth_file: dict[str, Any], email: str = "", job_id: st
         "plan_type": auth_file.get("plan_type", ""),
         "auth_file": auth_file,
     }
-    results = load_refresh_results()
+    results = load_refresh_results(path)
     email_lower = entry["email"].lower()
     results = [r for r in results if r.get("email", "").lower() != email_lower]
     results.append(entry)
-    save_refresh_results(results)
+    save_refresh_results(results, path)
 
 
-def load_login_history() -> list[dict[str, Any]]:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not LOGIN_HISTORY_FILE.exists():
+def load_login_history(path: Path = LOGIN_HISTORY_FILE) -> list[dict[str, Any]]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
         return []
     try:
-        raw = json.loads(LOGIN_HISTORY_FILE.read_text(encoding="utf-8-sig"))
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return []
     rows = raw.get("history") if isinstance(raw, dict) else raw
     return [item for item in rows if isinstance(item, dict)] if isinstance(rows, list) else []
 
 
-def save_login_history(history: list[dict[str, Any]]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def save_login_history(history: list[dict[str, Any]], path: Path = LOGIN_HISTORY_FILE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     trimmed = history[-LOGIN_HISTORY_LIMIT:]
     payload = {"updated_at": iso_now(), "history": trimmed}
-    tmp = LOGIN_HISTORY_FILE.with_suffix(".json.tmp")
+    tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(LOGIN_HISTORY_FILE)
+    tmp.replace(path)
 
 
-def append_login_history_entry(job: dict[str, Any]) -> None:
+def append_login_history_entry(job: dict[str, Any], path: Path = LOGIN_HISTORY_FILE) -> None:
     """Persist a completed login job summary to disk."""
     entry = {
         "job_id": job.get("job_id"),
@@ -501,10 +533,10 @@ def append_login_history_entry(job: dict[str, Any]) -> None:
         "login_only": job.get("login_only"),
         "site_url": job.get("site_url"),
     }
-    history = load_login_history()
+    history = load_login_history(path)
     history = [h for h in history if h.get("job_id") != entry["job_id"]]
     history.append(entry)
-    save_login_history(history)
+    save_login_history(history, path)
 
 
 def parse_account_lines(text: str) -> tuple[list[MailAccount], list[str]]:
@@ -1368,23 +1400,23 @@ def fetch_temp_messages(address: TempAddress, *, limit: int, sender_filter: str 
     return messages[:limit]
 
 
-def remove_cached_message(message: dict[str, Any]) -> bool:
+def remove_cached_message(message: dict[str, Any], path: Path = MESSAGES_FILE) -> bool:
     key = message_key(message)
-    messages = load_messages()
+    messages = load_messages(path)
     kept = [item for item in messages if message_key(item) != key]
     if len(kept) == len(messages):
         return False
-    save_messages(kept)
+    save_messages(kept, path)
     return True
 
 
-def delete_cached_mail_message(message: dict[str, Any]) -> dict[str, Any]:
+def delete_cached_mail_message(message: dict[str, Any], path: Path = MESSAGES_FILE) -> dict[str, Any]:
     if not isinstance(message, dict):
         raise RuntimeError("缺少要删除的邮件")
     email_addr = coerce_text(message.get("account"))
     if "@" not in email_addr:
         raise RuntimeError("邮件缺少所属邮箱，无法定位缓存")
-    cache_removed = remove_cached_message(message)
+    cache_removed = remove_cached_message(message, path)
     return {
         "success": True,
         "deleted": cache_removed,
@@ -1402,8 +1434,8 @@ def delete_transient_client_mail_message(payload: dict[str, Any]) -> dict[str, A
     }
 
 
-def delete_stored_mail_message(payload: dict[str, Any]) -> dict[str, Any]:
-    return delete_cached_mail_message(payload.get("message") or {})
+def delete_stored_mail_message(payload: dict[str, Any], path: Path = MESSAGES_FILE) -> dict[str, Any]:
+    return delete_cached_mail_message(payload.get("message") or {}, path)
 
 
 def extract_header_value(raw: str, header: str) -> str:
@@ -4779,7 +4811,10 @@ def set_login_job_status(job_id: str, status: str, **updates: Any) -> None:
         if status in {"success", "failed"}:
             job["finished_at"] = job["updated_at"]
             try:
-                append_login_history_entry(job)
+                append_login_history_entry(
+                    job,
+                    workspace_file(job.get("workspace_id", "public"), "login_history.json"),
+                )
             except Exception:
                 pass
 
@@ -6009,7 +6044,12 @@ def run_cpa_login_job(job_id: str, payload: dict[str, Any]) -> None:
 
         # 保存刷新结果到磁盘
         try:
-            append_refresh_result(auth_file, email=auth_file.get("email") or payload.get("email"), job_id=job_id)
+            append_refresh_result(
+                auth_file,
+                email=auth_file.get("email") or payload.get("email"),
+                job_id=job_id,
+                path=workspace_file(payload.get("_workspace_id", "public"), "refresh_results.json"),
+            )
             append_login_log(job_id, "已保存登录凭证至服务器", "info", "persist_success")
         except Exception as e:
             append_login_log(job_id, f"持久化凭证失败: {str(e)}", "warning", "persist_failed")
@@ -6100,7 +6140,7 @@ def run_cpa_login_job(job_id: str, payload: dict[str, Any]) -> None:
         )
 
 
-def start_cpa_login_job(payload: dict[str, Any]) -> dict[str, Any]:
+def start_cpa_login_job(payload: dict[str, Any], workspace_id: str = "public") -> dict[str, Any]:
     email_addr = coerce_text(payload.get("email"))
     if "@" not in email_addr:
         raise RuntimeError("请选择带邮箱的账号")
@@ -6112,6 +6152,7 @@ def start_cpa_login_job(payload: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("CPA 管理密钥不能为空")
     job_id = uuid.uuid4().hex
     payload = dict(payload)
+    payload["_workspace_id"] = normalize_workspace_id(workspace_id)
     payload["login_only"] = login_only
     payload["base_url"] = normalize_cpa_base_url(coerce_text(payload.get("base_url") or payload.get("baseUrl")) or "http://localhost:8317")
     payload["management_key"] = coerce_text(payload.get("management_key") or payload.get("managementKey"))
@@ -6127,13 +6168,14 @@ def start_cpa_login_job(payload: dict[str, Any]) -> dict[str, Any]:
         "created_at": iso_now(),
         "updated_at": iso_now(),
         "started_at": iso_now(),
+        "workspace_id": payload["_workspace_id"],
         "login_only": login_only,
         "site_url": payload.get("base_url") if not login_only or coerce_text(payload.get("base_url")) else "",
     }
     with LOGIN_JOBS_LOCK:
         LOGIN_JOBS[job_id] = job
     if payload.pop("_allow_stored_mail_credentials", False):
-        summary = hydrate_login_mail_credentials(payload)
+        summary = hydrate_login_mail_credentials(payload, payload["_workspace_id"])
         if summary.get("added") or summary.get("updated"):
             append_login_log(
                 job_id,
@@ -6156,11 +6198,15 @@ def start_cpa_login_job(payload: dict[str, Any]) -> dict[str, Any]:
     return {"success": True, "job": login_job_public(job)}
 
 
-def get_cpa_login_job(job_id: str) -> dict[str, Any]:
+def get_cpa_login_job(job_id: str, workspace_id: str = "") -> dict[str, Any]:
     with LOGIN_JOBS_LOCK:
         job = LOGIN_JOBS.get(job_id)
         if not job:
             raise RuntimeError("登录任务不存在")
+        expected_workspace = normalize_workspace_id(workspace_id)
+        job_workspace = normalize_workspace_id(job.get("workspace_id"))
+        if expected_workspace and job_workspace != expected_workspace:
+            raise RuntimeError("登录任务不属于当前工作区")
         return {"success": True, "job": login_job_public(job)}
 
 
@@ -6180,7 +6226,7 @@ def login_mail_credential_counts(payload: dict[str, Any]) -> dict[str, int]:
     return {"microsoft": microsoft, "temp": temp, "total": microsoft + temp}
 
 
-def hydrate_login_mail_credentials(payload: dict[str, Any]) -> dict[str, int]:
+def hydrate_login_mail_credentials(payload: dict[str, Any], workspace_id: str = "public") -> dict[str, int]:
     email_addr = coerce_text(payload.get("email")).lower()
     if "@" not in email_addr:
         return {"microsoft": 0, "temp": 0, "added": 0, "updated": 0}
@@ -6193,7 +6239,7 @@ def hydrate_login_mail_credentials(payload: dict[str, Any]) -> dict[str, int]:
         return coerce_text(item.get("email")).lower() == email_addr
 
     if not any(same_email(item) and usable_secret(item.get("client_id")) and usable_secret(item.get("refresh_token")) for item in accounts):
-        stored = load_accounts().get(email_addr)
+        stored = load_accounts(workspace_file(workspace_id, "accounts.json")).get(email_addr)
         if stored and usable_secret(stored.client_id) and usable_secret(stored.refresh_token):
             stored_item = {
                 "email": stored.email,
@@ -6214,7 +6260,7 @@ def hydrate_login_mail_credentials(payload: dict[str, Any]) -> dict[str, int]:
                 added += 1
 
     if not any(same_email(item) and usable_secret(item.get("jwt")) for item in temp_addresses):
-        stored_temp = load_temp_addresses().get(email_addr)
+        stored_temp = load_temp_addresses(workspace_file(workspace_id, "temp_addresses.json")).get(email_addr)
         if stored_temp and usable_secret(stored_temp.jwt):
             stored_item = {
                 "email": stored_temp.email,
@@ -6456,11 +6502,12 @@ def extract_admin_jwts(payload: dict[str, Any]) -> dict[str, Any]:
     return {"results": results, "count": len(results)}
 
 
-def sync_temp_jwts_from_worker(payload: dict[str, Any]) -> dict[str, Any]:
+def sync_temp_jwts_from_worker(payload: dict[str, Any], workspace_id: str = "public") -> dict[str, Any]:
     result = extract_admin_jwts(payload)
     base_url = normalize_temp_worker_url(coerce_text(payload.get("base_url")).rstrip("/"))
     site_password = coerce_text(payload.get("site_password"))
-    addresses = load_temp_addresses()
+    addresses_path = workspace_file(workspace_id, "temp_addresses.json")
+    addresses = load_temp_addresses(addresses_path)
     imported = 0
     updated = 0
     for item in result.get("results", []):
@@ -6484,7 +6531,7 @@ def sync_temp_jwts_from_worker(payload: dict[str, Any]) -> dict[str, Any]:
         else:
             imported += 1
     if imported or updated:
-        save_temp_addresses(addresses)
+        save_temp_addresses(addresses, addresses_path)
     return {
         **result,
         "success": True,
@@ -6494,9 +6541,10 @@ def sync_temp_jwts_from_worker(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def import_pickup_accounts(payload: dict[str, Any]) -> dict[str, Any]:
+def import_pickup_accounts(payload: dict[str, Any], workspace_id: str = "public") -> dict[str, Any]:
     incoming, errors = parse_account_lines(str(payload.get("text", "")))
-    accounts = load_accounts()
+    accounts_path = workspace_file(workspace_id, "accounts.json")
+    accounts = load_accounts(accounts_path)
     imported = 0
     updated = 0
     skipped = 0
@@ -6514,7 +6562,7 @@ def import_pickup_accounts(payload: dict[str, Any]) -> dict[str, Any]:
             imported += 1
         accounts[key] = account
     if imported or updated:
-        save_accounts(accounts)
+        save_accounts(accounts, accounts_path)
     return {
         "success": True,
         "imported": imported,
@@ -6654,7 +6702,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed_client.path == "/client-api/cpa/login-status":
             try:
                 params = urllib.parse.parse_qs(parsed_client.query)
-                self.send_json(get_cpa_login_job(params.get("job_id", [""])[0]))
+                self.send_json(get_cpa_login_job(params.get("job_id", [""])[0], self.workspace_id()))
             except Exception as exc:
                 self.send_json({"success": False, "error": str(exc)[:500]}, status=HTTPStatus.BAD_REQUEST)
             return
@@ -6662,6 +6710,27 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 params = urllib.parse.parse_qs(parsed_client.query)
                 self.send_json(get_local_oauth_flow(params.get("state", [""])[0]))
+            except Exception as exc:
+                self.send_json({"success": False, "error": str(exc)[:500]}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed_client.path == "/client-api/accounts":
+            try:
+                accounts = load_accounts(workspace_file(self.workspace_id(), "accounts.json"))
+                self.send_json({"accounts": [acc.public() for acc in accounts.values()]})
+            except Exception as exc:
+                self.send_json({"success": False, "error": str(exc)[:500]}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed_client.path == "/client-api/temp-addresses":
+            try:
+                addresses = load_temp_addresses(workspace_file(self.workspace_id(), "temp_addresses.json"))
+                self.send_json({"addresses": [addr.public() for addr in addresses.values()]})
+            except Exception as exc:
+                self.send_json({"success": False, "error": str(exc)[:500]}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed_client.path == "/client-api/refresh-results":
+            try:
+                results = load_refresh_results(workspace_file(self.workspace_id(), "refresh_results.json"))
+                self.send_json({"results": results})
             except Exception as exc:
                 self.send_json({"success": False, "error": str(exc)[:500]}, status=HTTPStatus.BAD_REQUEST)
             return
@@ -6796,7 +6865,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/client-api/temp-addresses/sync-jwts":
             try:
-                self.send_json(sync_temp_jwts_from_worker(self.read_json()))
+                self.send_json(sync_temp_jwts_from_worker(self.read_json(), self.workspace_id()))
             except Exception as exc:
                 self.send_json({
                     "success": False,
@@ -6806,7 +6875,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/client-api/accounts/import-pickup":
             try:
-                self.send_json(import_pickup_accounts(self.read_json()))
+                self.send_json(import_pickup_accounts(self.read_json(), self.workspace_id()))
             except Exception as exc:
                 self.send_json({
                     "success": False,
@@ -6817,9 +6886,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/client-api/cpa/login-start":
             try:
                 payload = self.read_json()
-                if self.admin_request_authorized():
+                if payload.get("use_stored_mail_credentials") or payload.get("useStoredMailCredentials"):
                     payload["_allow_stored_mail_credentials"] = True
-                self.send_json(start_cpa_login_job(payload))
+                self.send_json(start_cpa_login_job(payload, self.workspace_id()))
             except Exception as exc:
                 details = classify_login_exception(exc)
                 self.send_json({
@@ -7027,6 +7096,13 @@ class Handler(BaseHTTPRequestHandler):
         token = query.get("token", [""])[0]
         auth = self.headers.get("Authorization", "")
         return token == ADMIN_TOKEN or auth == f"Bearer {ADMIN_TOKEN}" or self.has_admin_cookie()
+
+    def workspace_id(self) -> str:
+        parsed = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        header_value = self.headers.get("X-Workspace-Id", "")
+        query_value = query.get("workspace_id", [""])[0] or query.get("workspaceId", [""])[0]
+        return normalize_workspace_id(header_value or query_value)
 
     def has_admin_cookie(self) -> bool:
         if not ADMIN_TOKEN:

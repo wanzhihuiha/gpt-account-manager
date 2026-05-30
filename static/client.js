@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   abnormalRows: "ctgptm.mail.abnormalRows",
   cpaSettings: "ctgptm.mail.cpaSettings",
   tempSettings: "ctgptm.mail.tempSettings",
+  workspaceId: "ctgptm.workspaceId",
 };
 const DEFAULT_TEMP_WORKER_URL = "https://maip.wsphl.cfd";
 const LEGACY_TEMP_WORKER_URLS = new Set([
@@ -31,6 +32,27 @@ const TYPE_LABELS = {
 
 const EMPTY_CATEGORY_LABEL = "未分组";
 const LEGACY_SEEDED_CATEGORIES = new Set(["默认", "客户", "注册", "账单"]);
+const MOJIBAKE_TEXT_FIXES = new Map([
+  ["\u699b\u6a3f\ue17b", "默认"],
+  ["\u93c8\ue044\u578e\u7f01\u003f", "未分组"],
+  ["\u6960\u5c83\u7609\u942e\u003f", "验证码"],
+  ["\u95ad\u20ac\u7487\u003f", "邀请"],
+  ["\u7039\u590a\u53cf", "安全"],
+  ["\u95b2\u5d87\u7586", "重置"],
+  ["\u7490\ufe40\u5d1f", "账单"],
+  ["\u95ab\u6c31\u7161", "通知"],
+  ["\u704f\u4f7a\ue6e6", "封禁"],
+  ["\u934f\u6735\u7cac", "其他"],
+  ["\u9477\ue044\u59e9\u7487\u55d7\u57c6", "自动识别"],
+  ["\u6d93\u5b58\u6902\u95ad\ue1be\ue188", "临时邮箱"],
+  ["\u95ad\ue1be\ue188", "邮箱"],
+  ["\u9352\u950b\u67ca", "刷新"],
+  ["\u6fb6\u8fab\u89e6", "失败"],
+  ["\u93b4\u612c\u59db", "成功"],
+  ["\u7035\u714e\u53c6", "导入"],
+  ["\u9352\u72bb\u6ace", "删除"],
+  ["\u7ee0\uff04\u608a", "管理"],
+]);
 const MAIL_SERVICES = {
   auto: {
     label: "自动识别",
@@ -139,6 +161,8 @@ const els = {
   toast: document.querySelector("#toast"),
 };
 
+repairLocalStorageKeys(Object.values(STORAGE_KEYS));
+
 const storedAccounts = loadJson(STORAGE_KEYS.accounts, []);
 const normalizedAccounts = normalizeStoredAccounts(storedAccounts);
 if (JSON.stringify(storedAccounts) !== JSON.stringify(normalizedAccounts)) {
@@ -165,6 +189,7 @@ const state = {
 const cpaSettings = loadJson(STORAGE_KEYS.cpaSettings, {});
 const tempSettings = loadJson(STORAGE_KEYS.tempSettings, {});
 const authQueryToken = new URLSearchParams(window.location.search).get("token") || "";
+const workspaceId = getWorkspaceId();
 els.cpaBaseUrl.value = cpaSettings.base_url || "";
 els.cpaKey.value = cpaSettings.management_key || "";
 els.cpaLimit.value = cpaSettings.max_items || "50";
@@ -186,7 +211,7 @@ localStorage.removeItem("ctgptm.mail.tempWorkerUrl");
 function loadJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
+    return raw ? repairStoredJson(JSON.parse(raw)) : fallback;
   } catch {
     return fallback;
   }
@@ -194,6 +219,49 @@ function loadJson(key, fallback) {
 
 function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getWorkspaceId() {
+  const existing = localStorage.getItem(STORAGE_KEYS.workspaceId) || "";
+  if (/^[A-Za-z0-9][A-Za-z0-9_.-]{5,63}$/.test(existing)) return existing;
+  const next = `ws_${crypto.randomUUID().replace(/-/g, "")}`;
+  localStorage.setItem(STORAGE_KEYS.workspaceId, next);
+  return next;
+}
+
+function repairMojibakeText(value) {
+  if (typeof value !== "string" || !value) return value;
+  let text = value;
+  MOJIBAKE_TEXT_FIXES.forEach((fixed, broken) => {
+    text = text.split(broken).join(fixed);
+  });
+  return text;
+}
+
+function repairStoredJson(value) {
+  if (typeof value === "string") return repairMojibakeText(value);
+  if (Array.isArray(value)) return value.map((item) => repairStoredJson(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, repairStoredJson(item)]));
+  }
+  return value;
+}
+
+function repairLocalStorageKeys(keys) {
+  keys.forEach((key) => {
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      const repaired = repairStoredJson(parsed);
+      if (JSON.stringify(parsed) !== JSON.stringify(repaired)) {
+        localStorage.setItem(key, JSON.stringify(repaired));
+      }
+    } catch {
+      const repaired = repairMojibakeText(raw);
+      if (repaired !== raw) localStorage.setItem(key, repaired);
+    }
+  });
 }
 
 async function readJsonResponse(response, label) {
@@ -211,7 +279,10 @@ function rememberedAdminToken() {
 }
 
 function apiHeaders() {
-  const headers = { "Content-Type": "application/json" };
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Workspace-Id": workspaceId,
+  };
   const token = rememberedAdminToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -351,7 +422,7 @@ function preferRealSecret(nextValue, currentValue) {
 function normalizeStoredCategories(value) {
   if (!Array.isArray(value)) return [];
   const cleaned = [...new Set(value.map((category) => String(category || "").trim()).filter(Boolean))]
-    .filter((category) => category !== "榛樿");
+    .filter((category) => category !== "默认");
   return cleaned.length && cleaned.every((category) => LEGACY_SEEDED_CATEGORIES.has(category)) ? [] : cleaned;
 }
 
@@ -444,7 +515,7 @@ function normalizeStoredMessages(value) {
   if (!Array.isArray(value)) return [];
   return value.map((message) => ({
     ...message,
-    category: message.category === "榛樿" ? "" : (message.category || ""),
+    category: message.category === "默认" ? "" : (message.category || ""),
   }));
 }
 
@@ -1594,7 +1665,7 @@ async function scanCpaAbnormal() {
   try {
     const response = await fetch("/client-api/cpa/scan-401", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(),
       body: JSON.stringify({
         base_url: baseUrl,
         management_key: managementKey,
@@ -1770,7 +1841,7 @@ async function startAbnormalLogin(row) {
   try {
     const response = await fetch("/client-api/cpa/login-start", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders(),
       body: JSON.stringify(payload),
     });
     const data = await readJsonResponse(response, "/client-api/cpa/login-start");
@@ -1829,7 +1900,7 @@ async function pollLoginJobs() {
     const current = rowStateFor(row);
     if (!current.jobId) continue;
     try {
-      const response = await fetch(`/client-api/cpa/login-status?job_id=${encodeURIComponent(current.jobId)}`, { cache: "no-store" });
+      const response = await fetch(`/client-api/cpa/login-status?job_id=${encodeURIComponent(current.jobId)}`, { headers: apiHeaders(), cache: "no-store" });
       const data = await readJsonResponse(response, "/client-api/cpa/login-status");
       if (!response.ok || !data.success) throw new Error(data.error || "读取登录任务失败");
       const job = data.job || {};
@@ -2155,7 +2226,7 @@ async function syncMail() {
       : "本次使用当前浏览器本地导入的邮箱凭证刷新", "info");
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: useServerStoredAccounts ? apiHeaders() : { "Content-Type": "application/json" },
+      headers: apiHeaders(),
       body: JSON.stringify(requestPayload),
     });
     const data = await readJsonResponse(response, endpoint);

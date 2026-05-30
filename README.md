@@ -71,9 +71,11 @@ This repository does not vendor or copy those projects directly; it keeps its ow
 
 ## Data Boundary
 
-The front page is browser-first. User-imported Outlook credentials, temp-mail JWTs, categories, local mail cache, ignored/deleted message keys, and CPA warehouse settings are stored in `localStorage` unless the user explicitly uses admin/server APIs.
+The front page is browser-first. User-imported Outlook credentials, temp-mail JWTs, categories, local mail cache, ignored/deleted message keys, and CPA warehouse settings are stored in `localStorage` unless the user explicitly uses a server-side helper.
 
-Server-side `data/` is used for private/admin experiments and service-side storage. Release zips intentionally do not include `data/`, logs, or `node_modules`.
+For normal client APIs, the browser creates a `ctgptm.workspaceId` value and sends it as `X-Workspace-Id`. Server-side helper data is written under `data/workspaces/<workspace-id>/`, including imported pickup credentials, temp-mail JWT sync results, credential refresh results, and login history. This keeps different browser users on the same VPS from reading or reusing each other's server-side helper data.
+
+Admin `/api/*` and `/admin-api/*` endpoints remain operator/global surfaces protected by `MAIL_PICKUP_ADMIN_TOKEN`. Release zips intentionally do not include `data/`, logs, or `node_modules`.
 
 ## Compatibility Note
 

@@ -13,9 +13,13 @@ Normal user credentials are stored in the current browser by default:
 
 These values live in `localStorage`. They are not written to the server by the normal front-page receive-mail flow.
 
+When a normal user calls server-side helper APIs, the browser sends a generated `X-Workspace-Id` from `ctgptm.workspaceId`. Helper-side data is namespaced under `data/workspaces/<workspace-id>/` so different browser users do not share imported mailbox credentials, synced temp-mail JWTs, refresh results, or login task history.
+
 ## Server-Side Secrets
 
 Set `MAIL_PICKUP_ADMIN_TOKEN` on any public deployment. Admin pages and admin APIs require this token or a login cookie created through `/login.html`.
+
+Admin endpoints are intentionally global operator surfaces. Do not share the admin token with normal users unless you want them to access the global admin pool.
 
 Do not commit real values for:
 
