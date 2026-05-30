@@ -1432,6 +1432,7 @@ function rowStateFor(row) {
   return state.loginJobs.get(row.id) || {
     status: row.status || "idle",
     error: row.error || "",
+    status_label: row.status_label || "",
     jobId: row.jobId || "",
     logs: row.logs || [],
   };
@@ -1454,7 +1455,24 @@ function loginLabel(status) {
     usage_limit_reached: "额度耗尽",
     needs_login: "需重新授权",
     probe_failed: "探测失败",
+    not_openai_auth: "非 OpenAI",
   }[status] || status || "等待";
+}
+
+const CPA_NON_REFRESHABLE_STATUSES = new Set([
+  "active",
+  "refreshed",
+  "rt_rotated",
+  "banned",
+  "usage_limit_reached",
+  "not_openai_auth",
+]);
+
+function isRowRefreshable(row) {
+  if (row.source_kind !== "cpa") return true;
+  const status = rowStateFor(row).status || row.status || "idle";
+  if (row.refreshable === false) return false;
+  return !CPA_NON_REFRESHABLE_STATUSES.has(status);
 }
 
 function accountForRow(row) {
@@ -1575,8 +1593,20 @@ function upsertAbnormalRows(rows) {
         cpa_name: row.cpa_name || current.cpa_name,
         auth_index: row.auth_index || current.auth_index,
         account_id: row.account_id || current.account_id,
+        status: row.status || current.status,
+        status_label: row.status_label || current.status_label,
         message: row.message || current.message,
+        diagnosis: row.diagnosis || current.diagnosis,
+        action_hint: row.action_hint || current.action_hint,
+        refreshable: row.refreshable ?? current.refreshable,
+        plan_type: row.plan_type || current.plan_type,
       }));
+      const existingJob = state.loginJobs.get(current.id);
+      if (row.status && !["queued", "running"].includes(existingJob?.status || "")) {
+        state.loginJobs.delete(current.id);
+        current.error = row.error || "";
+        current.logs = row.logs || [];
+      }
       state.selectedAbnormal.add(current.id);
       return;
     }
@@ -1590,7 +1620,12 @@ function upsertAbnormalRows(rows) {
       account_id: row.account_id || "",
       status: row.status || "idle",
       error: row.error || "",
+      status_label: row.status_label || "",
       message: row.message || "",
+      diagnosis: row.diagnosis || "",
+      action_hint: row.action_hint || "",
+      refreshable: row.refreshable,
+      plan_type: row.plan_type || "",
       logs: [],
       auth_file: row.auth_file || null,
     };
@@ -1633,8 +1668,13 @@ function rowsFromCpaCandidates(candidates) {
       cpa_name: item.name || item.id || "",
       auth_index: item.auth_index || "",
       account_id: account?.id || "",
-      status: "idle",
-      message: item.message || "CPA 401",
+      status: item.status || "idle",
+      status_label: item.status_label || item.diagnosis || "",
+      diagnosis: item.diagnosis || item.status_label || "",
+      action_hint: item.action_hint || "",
+      refreshable: item.refreshable,
+      plan_type: item.plan_type || "",
+      message: item.message || item.raw_message || "CPA 巡检异常",
     };
   });
 }
@@ -1676,8 +1716,12 @@ async function scanCpaAbnormal() {
     if (!response.ok || !data.success) throw new Error(data.error || "CPA 扫描失败");
     const rows = rowsFromCpaCandidates(data.candidates || []);
     const added = upsertAbnormalRows(rows);
-    addClientLog(`CPA 扫描完成：${data.summary?.candidates || rows.length} 个 401`, "info");
-    toast(`扫描到 ${rows.length} 个 401，新增 ${added} 个`);
+    const summary = data.summary || {};
+    addClientLog(
+      `CPA 巡检完成：异常 ${summary.candidates || rows.length}，可用 ${summary.credential_ok || 0}，需授权 ${summary.needs_login || 0}，封禁 ${summary.banned || 0}，风控 ${summary.risk || 0}，额度 ${summary.limited || 0}`,
+      "info"
+    );
+    toast(`巡检到 ${rows.length} 个异常，新增 ${added} 个`);
     setActiveView("login");
     renderLoginTable();
   } catch (error) {
@@ -1806,7 +1850,15 @@ function renderLoginTable() {
   els.loginTableBody.innerHTML = rows.map((row) => {
     const job = rowStateFor(row);
     const status = job.status || "idle";
-    const source = row.source_kind === "cpa" ? "CPA 401" : "本地邮箱";
+    const source = row.source_kind === "cpa" ? "CPA 巡检" : "本地邮箱";
+    const statusText = job.status_label || row.status_label || loginLabel(status);
+    const diagnosisText = [
+      row.diagnosis || row.status_label,
+      row.message,
+      row.action_hint,
+    ].filter(Boolean).join(" · ");
+    const detail = job.error || diagnosisText || "-";
+    const refreshable = isRowRefreshable(row);
     return `
       <tr data-id="${escapeHtml(row.id)}">
         <td><input class="abnormal-check" type="checkbox" ${state.selectedAbnormal.has(row.id) ? "checked" : ""}></td>
@@ -1815,9 +1867,9 @@ function renderLoginTable() {
           ${row.cpa_name ? `<em>${escapeHtml(row.cpa_name)}</em>` : ""}
         </td>
         <td>${escapeHtml(source)}</td>
-        <td><span class="login-status ${escapeHtml(status)}">${escapeHtml(loginLabel(status))}</span></td>
-        <td><div class="login-error" title="${escapeHtml(job.error || "")}">${escapeHtml(job.error || "-")}</div></td>
-        <td><button class="login-one" type="button" ${status === "running" || status === "queued" ? "disabled" : ""}>执行</button></td>
+        <td><span class="login-status ${escapeHtml(status)}">${escapeHtml(statusText)}</span></td>
+        <td><div class="login-error" title="${escapeHtml(detail)}">${escapeHtml(detail)}</div></td>
+        <td><button class="login-one" type="button" ${status === "running" || status === "queued" || !refreshable ? "disabled" : ""}>${refreshable ? "执行" : "跳过"}</button></td>
       </tr>
     `;
   }).join("");
@@ -1830,6 +1882,12 @@ function selectedAbnormalRows({ failedOnly = false } = {}) {
 }
 
 async function startAbnormalLogin(row) {
+  if (!isRowRefreshable(row)) {
+    const reason = row.action_hint || row.message || row.diagnosis || "当前状态不建议刷新";
+    addClientLog(`${row.email || row.name} 跳过：${reason}`, "warning");
+    toast(reason);
+    return;
+  }
   const account = accountForRow(row);
   const payload = loginPayload(row);
   state.loginJobs.set(row.id, { status: "queued", error: "", logs: [] });
@@ -1876,7 +1934,15 @@ async function startLoginForRows(rows) {
     return;
   }
   setActiveView("login");
-  for (const row of rows) {
+  const runnable = rows.filter(isRowRefreshable);
+  const skipped = rows.length - runnable.length;
+  if (skipped) addClientLog(`已跳过 ${skipped} 个无需或不应刷新的账号`, "warning");
+  if (!runnable.length) {
+    toast("没有需要重新授权的账号");
+    renderLoginTable();
+    return;
+  }
+  for (const row of runnable) {
     await startAbnormalLogin(row);
   }
 }

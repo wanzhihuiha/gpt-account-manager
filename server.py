@@ -70,7 +70,7 @@ TEMP_ADDRESSES_FILE = DATA_DIR / "temp_addresses.json"
 REFRESH_RESULTS_FILE = DATA_DIR / "refresh_results.json"
 LOGIN_HISTORY_FILE = DATA_DIR / "login_history.json"
 LOGIN_DEBUG_DIR = DATA_DIR / "login_debug"
-APP_VERSION = "20260531-workspace-isolation"
+APP_VERSION = "20260531-cpa-diagnosis"
 
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
@@ -3701,12 +3701,22 @@ def cpa_probe_status(base_url: str, management_key: str, item: dict[str, Any]) -
             except Exception:
                 status_code = None
         result["status_code"] = status_code
-        if status_code == 401:
-            message, raw_message = cpa_status_message(payload, status_code=status_code, action="401")
-            result.update({"ok": False, "action": "401", "message": message, "raw_message": raw_message})
-        elif status_code:
+        status_code_text = coerce_text(status_code)
+        if status_code_text == "200":
             message, raw_message = cpa_status_message(payload, status_code=status_code, action="ready")
             result.update({"ok": True, "action": "ready", "message": message, "raw_message": raw_message})
+        elif status_code_text == "401":
+            message, raw_message = cpa_status_message(payload, status_code=status_code, action="401")
+            result.update({"ok": False, "action": "401", "message": message, "raw_message": raw_message})
+        elif status_code_text == "403":
+            message, raw_message = cpa_status_message(payload, status_code=status_code, action="risk_blocked")
+            result.update({"ok": False, "action": "risk_blocked", "message": message, "raw_message": raw_message})
+        elif status_code_text == "429":
+            message, raw_message = cpa_status_message(payload, status_code=status_code, action="usage_limit_reached")
+            result.update({"ok": False, "action": "usage_limit_reached", "message": message, "raw_message": raw_message})
+        elif status_code_text:
+            message, raw_message = cpa_status_message(payload, status_code=status_code, action="http_error")
+            result.update({"ok": False, "action": "http_error", "message": message, "raw_message": raw_message})
         else:
             message, raw_message = cpa_status_message(payload, action="probe_failed")
             result.update({"ok": False, "action": "probe_failed", "message": message, "raw_message": raw_message})
@@ -3783,12 +3793,104 @@ def cpa_candidates(payload: dict[str, Any]) -> tuple[str, str, int, list[dict[st
     return base_url, management_key, max_items, candidates
 
 
+def cpa_diagnosis_action_hint(status: str) -> str:
+    return {
+        "active": "凭证可用，可以跳过刷新",
+        "refreshed": "RT 可用，已能刷新 access_token",
+        "rt_rotated": "RT 可用且已轮换，建议保存新 auth",
+        "rt_invalid": "RT 已失效，需要走邮箱登录重新授权",
+        "session_expired": "会话已过期，需要走邮箱登录重新授权",
+        "banned": "账号封禁或停用，不建议继续刷新",
+        "risk_blocked": "目标站风控或地区受限，请换干净代理出口后再处理",
+        "usage_limit_reached": "额度耗尽但凭证有效，暂不需要重新登录",
+        "needs_login": "缺少可用 token，需要导入取码邮箱后重新授权",
+        "probe_failed": "探测失败，请检查网络、CPA auth_file 或稍后重试",
+        "not_openai_auth": "不是 OpenAI/Codex 凭证，已跳过",
+    }.get(status, "请查看诊断详情")
+
+
+def cpa_status_refreshable(status: str) -> bool:
+    return status in {"rt_invalid", "session_expired", "needs_login", "risk_blocked", "probe_failed"}
+
+
+def diagnose_cpa_candidate(base_url: str, management_key: str, item: dict[str, Any]) -> dict[str, Any]:
+    row = dict(item)
+    name = coerce_text(row.get("name") or row.get("id"))
+    auth_file: dict[str, Any] = {}
+    if name and not row.get("runtime_only"):
+        try:
+            auth_file = cpa_download_auth_file(base_url, management_key, name)
+        except Exception as exc:
+            status = "probe_failed"
+            message = f"下载 CPA auth 失败：{str(exc)[:220]}"
+            return {
+                **row,
+                "name": name,
+                "email": coerce_text(row.get("email") or row.get("account")),
+                "status": status,
+                "status_label": lifecycle_status_label(status),
+                "diagnosis": lifecycle_status_label(status),
+                "message": message,
+                "action_hint": "请检查 CPA 管理密钥、auth 文件名或 CPA 服务状态",
+                "refreshable": False,
+                "ok": False,
+                "action": "diagnosis_failed",
+            }
+    if not row.get("runtime_only") and not looks_like_openai_auth_file(row, auth_file):
+        status = "not_openai_auth"
+        return {
+            **row,
+            "name": name,
+            "email": infer_auth_email(row, auth_file) or coerce_text(row.get("email") or row.get("account")),
+            "status": status,
+            "status_label": lifecycle_status_label(status),
+            "diagnosis": lifecycle_status_label(status),
+            "message": "不是 OpenAI/Codex 凭证，已跳过",
+            "action_hint": cpa_diagnosis_action_hint(status),
+            "refreshable": False,
+            "ok": False,
+            "action": "skipped",
+        }
+    try:
+        diagnosis = refresh_lifecycle_item({
+            "auth_file": auth_file or row,
+            "row": row,
+            "name": name or coerce_text(row.get("email") or row.get("account")),
+        })
+    except Exception as exc:
+        status = "probe_failed"
+        diagnosis = {
+            "status": status,
+            "status_label": lifecycle_status_label(status),
+            "message": f"OpenAI 深度探测失败：{str(exc)[:220]}",
+            "ok": False,
+            "email": infer_auth_email(row, auth_file) or coerce_text(row.get("email") or row.get("account")),
+            "name": name,
+        }
+    status = coerce_text(diagnosis.get("status") or "probe_failed")
+    status_label = coerce_text(diagnosis.get("status_label") or lifecycle_status_label(status))
+    return {
+        **row,
+        "name": name or diagnosis.get("name") or row.get("name"),
+        "email": diagnosis.get("email") or infer_auth_email(row, auth_file) or coerce_text(row.get("email") or row.get("account")),
+        "status": status,
+        "status_label": status_label,
+        "diagnosis": status_label,
+        "message": coerce_text(diagnosis.get("message") or row.get("message") or status_label),
+        "action_hint": cpa_diagnosis_action_hint(status),
+        "refreshable": cpa_status_refreshable(status),
+        "ok": bool(diagnosis.get("ok")),
+        "plan_type": coerce_text(diagnosis.get("plan_type")),
+        "expires_at": diagnosis.get("expires_at", ""),
+        "action": "diagnosed",
+    }
+
+
 def scan_cpa_401(payload: dict[str, Any]) -> dict[str, Any]:
     base_url, management_key, max_items, candidates = cpa_candidates(payload)
-    detected = [item for item in candidates if cpa_is_401_item(item)]
-    if detected:
-        results = []
-        for item in detected:
+    results = []
+    for item in candidates:
+        if cpa_is_401_item(item):
             status_source = item.get("status_message") or item.get("message") or item.get("error") or "401 Unauthorized"
             message, raw_message = cpa_status_message(status_source, status_code=401, action="401")
             results.append({
@@ -3800,18 +3902,34 @@ def scan_cpa_401(payload: dict[str, Any]) -> dict[str, Any]:
                 "message": message,
                 "raw_message": raw_message,
             })
-    else:
-        results = [cpa_probe_status(base_url, management_key, item) for item in candidates]
-    invalid = [item for item in results if item.get("status_code") == 401 or item.get("action") == "401"]
+        else:
+            results.append(cpa_probe_status(base_url, management_key, item))
+    diagnosis_targets = [
+        item for item in results
+        if item.get("action") != "ready" or coerce_text(item.get("status_code")) in {"401", "403", "429"}
+    ]
+    diagnosed = [diagnose_cpa_candidate(base_url, management_key, item) for item in diagnosis_targets]
+    surfaced = [
+        item for item in diagnosed
+        if item.get("refreshable")
+        or item.get("status") in {"active", "refreshed", "rt_rotated", "banned", "risk_blocked", "usage_limit_reached", "rt_invalid", "session_expired", "needs_login", "probe_failed", "not_openai_auth"}
+    ]
     return {
         "success": True,
         "total": len(candidates),
         "max_items": max_items,
-        "candidates": invalid,
+        "candidates": surfaced,
         "results": results,
+        "diagnostics": diagnosed,
         "summary": {
             "total": len(candidates),
-            "candidates": len(invalid),
+            "candidates": len(surfaced),
+            "diagnosed": len(diagnosed),
+            "credential_ok": len([item for item in diagnosed if item.get("status") in {"active", "refreshed", "rt_rotated"}]),
+            "needs_login": len([item for item in diagnosed if item.get("refreshable")]),
+            "banned": len([item for item in diagnosed if item.get("status") == "banned"]),
+            "risk": len([item for item in diagnosed if item.get("status") == "risk_blocked"]),
+            "limited": len([item for item in diagnosed if item.get("status") == "usage_limit_reached"]),
             "uploaded": 0,
             "deleted": 0,
             "failed": len([item for item in results if item.get("action") == "probe_failed"]),
@@ -4456,6 +4574,7 @@ def lifecycle_status_label(status: str) -> str:
         "usage_limit_reached": "额度耗尽",
         "needs_login": "需要重新授权",
         "probe_failed": "探测失败",
+        "not_openai_auth": "非 OpenAI 凭证",
         "mail_ok": "邮箱可用",
         "mail_dead": "邮箱不可用",
     }.get(status, status or "未知")

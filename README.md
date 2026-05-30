@@ -158,7 +158,7 @@ location / {
 
 - `POST /client-api/fetch` receives credentials from the current browser request and returns messages. It does not save user mailboxes on the server.
 - `POST /client-api/messages/delete` deletes/hides local cached messages for the browser workflow. It does not delete remote mailbox messages.
-- `POST /client-api/cpa/scan-401` scans a CPA/CLIProxyAPI management endpoint for invalid credentials. The management key is forwarded for this request and not stored by this tool.
+- `POST /client-api/cpa/scan-401` scans a CPA/CLIProxyAPI management endpoint, diagnoses invalid or abnormal credentials, and classifies RT expiry, session expiry, deactivation, risk/region blocks, usage limits, non-OpenAI auth files, and probe failures. The management key is forwarded for this request and not stored by this tool.
 - `POST /client-api/cpa/repair-401` deletes invalid CPA auth files from the target CPA endpoint.
 - `POST /admin-api/extract-jwts` requires `MAIL_PICKUP_ADMIN_TOKEN` and is only for Cloudflare Temp Email Worker admin extraction.
 
