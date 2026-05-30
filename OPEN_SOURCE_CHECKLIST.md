@@ -1,8 +1,8 @@
-# Open Source Checklist
+# 开源发布检查清单
 
-Use this checklist before pushing the project to GitHub.
+推送到 GitHub 前，按这个清单过一遍。
 
-## Keep
+## 应该保留
 
 - `server.py`
 - `openai_sentinel_token.cjs`
@@ -16,7 +16,7 @@ Use this checklist before pushing the project to GitHub.
 - `package.json`
 - `package-lock.json`
 
-## Do Not Commit
+## 不应该提交
 
 - `data/`
 - `.cache/`
@@ -28,18 +28,18 @@ Use this checklist before pushing the project to GitHub.
 - `__pycache__/`
 - `*.zip`
 - `*.log`
-- real `.env` files
+- 真实 `.env` 文件
 
-## Secret Scan
+## 密钥扫描
 
-Before upload, search the clean tree for:
+推送前扫描：
 
 ```bash
 rg -n "refresh_token|access_token|id_token|MAIL_PICKUP_ADMIN_TOKEN|Bearer |rt_|eyJ|password" .
 ```
 
-Expected hits should be placeholders, field names, or documentation examples only. Remove any real mailbox credentials, JWTs, CPA management keys, proxy passwords, or admin tokens.
+预期命中只应该是占位符、字段名或文档示例。真实邮箱凭证、JWT、CPA management key、代理密码、管理员 token 都不能进入仓库。
 
-## Runtime Data
+## 运行时数据
 
-The app creates runtime files under `data/`. These files are private server data and can contain mailbox credentials, cached messages, login debug screenshots, and exported auth files. Keep only `data/.keep` in source control.
+应用会在 `data/` 下创建运行时文件。这些文件可能包含邮箱凭证、邮件缓存、登录调试截图和导出的 auth file。源码仓库最多保留 `data/.keep`。

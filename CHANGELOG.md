@@ -1,16 +1,29 @@
-﻿# Changelog
+# 更新记录
+
+## 2026-05-31
+
+- README 改为中文主体，删除中英文重复介绍。
+- 去掉页面顶部的商城、中转站、公益站展示外链，开源版默认只保留 GitHub 入口。
+- CPA 仓管巡检增加深度诊断：RT 失效、会话失效、封禁/停用、风控/地区受限、额度耗尽、非 OpenAI 凭证、探测失败等。
+- 增加普通用户工作区隔离：服务端辅助数据按 `X-Workspace-Id` 写入 `data/workspaces/<workspace-id>/`。
+- 修复中文文案乱码残留，并加入本地存储旧乱码值的前端修复。
+
+## 2026-05-30
+
+- 优化刷新工作台布局，右侧日志改成更紧凑的终端风格。
+- 登录失败原因改成更清楚的中文分类，避免直接展示大段英文错误。
+- sub2api 导出修正 `expires_at` 类型，避免导入时报 `int64` 解析错误。
+- 成功账号、失败账号、需要接码账号在刷新池里分组展示。
 
 ## 2026-05-28
 
-- Fixed a front-end script syntax break that prevented mailbox refresh from running.
-- Added local batch deletion for the current mail filter result.
-- Added refresh request/error details so failed mailbox refreshes show the real cause.
-- Tightened mailbox and mail-list headers so titles and counters stay aligned.
-- Hid bulky mail-list scrollbars while keeping the list scrollable.
-- Restored Microsoft IMAP HTML message detail rendering.
-- Added browser-local backup and restore for mailbox assistant data.
-- Added import preflight summary for Outlook and temp-mail pasted data.
-- Added admin login page with cookie-based admin session.
-- Made deployment self-check private when `MAIL_PICKUP_ADMIN_TOKEN` is set.
-- Compressed front-page header spacing and replaced heavy native scrollbars with thin scrollbars.
-- Clarified open-source data boundaries in README and SECURITY docs.
+- 修复前端脚本语法问题，恢复邮箱刷新。
+- 增加当前筛选结果的本地批量删除。
+- 刷新失败时展示更具体的请求和错误原因。
+- 压缩邮箱列表和邮件列表头部，让标题和计数更整齐。
+- 隐藏笨重滚动条，同时保留列表滚动能力。
+- 恢复 Microsoft IMAP HTML 邮件详情渲染。
+- 增加浏览器本地备份和恢复。
+- 导入 Outlook / 临时邮箱时增加预检摘要。
+- 增加管理员登录页和 cookie 管理员会话。
+- 设置 `MAIL_PICKUP_ADMIN_TOKEN` 后，自检页改为私有入口。

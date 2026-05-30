@@ -26,7 +26,7 @@ else
 fi
 
 if command -v npm >/dev/null 2>&1; then
-  npm install --omit=dev --cache /tmp/ctgptm-npm-cache --no-audit --no-fund
+  npm install --omit=dev --cache /tmp/gpt-account-manager-npm-cache --no-audit --no-fund
 fi
 
 cp deploy/ctgptm-mail-assistant.service "${SERVICE_FILE}"
@@ -49,6 +49,6 @@ nginx -t
 systemctl reload nginx
 
 echo
-echo "GPT Account Manager installed."
+echo "GPT账号管理助手 installed."
 echo "Check service: systemctl status ctgptm-mail-assistant --no-pager"
 echo "Local probe:   curl -I http://127.0.0.1:8765/"

@@ -1,140 +1,133 @@
 # GPT账号管理助手
 
-GPT账号管理助手是一个浏览器优先的 GPT 账号运营工具，用于统一处理 Outlook / Microsoft OAuth 邮箱、临时邮箱 JWT、邮件验证码检索、本地邮件缓存、CPA 凭证仓管、OAuth 凭证刷新和 CPA / Sub2API auth JSON 导出。
+我做这个项目，不是为了让管理员先把一堆凭证放到服务器里，然后只给某一个人用。它更像一个批量账号管理工作台：普通用户自己导入邮箱资料，自己收验证码，自己把需要刷新的账号推进队列；管理员只负责站点维护、临时邮箱提取、CPA 仓管和必要的批量整理。
 
-立即使用入口：<https://mail.wsphl.cfd/>
+它现在主要处理几类事情：
 
-GitHub: <https://github.com/margetrp-hub/gpt-account-manager>
+- Outlook / Microsoft OAuth 邮箱批量导入和取信。
+- 临时邮箱 JWT 批量导入和取信。
+- 邮件验证码检索、本地邮件缓存、搜索、复制和本地删除。
+- 账号分组、封禁/异常标记、刷新队列管理。
+- CPA / CLIProxyAPI 仓管巡检，识别 RT 失效、会话失效、封禁、风控、额度耗尽、非 OpenAI 凭证等状态。
+- OpenAI OAuth 凭证刷新，并导出 CPA / Sub2API 可用的 auth JSON。
 
-本项目的核心边界是：普通用户在前台导入自己的邮箱凭证并完成收信、查码、删除本地缓存、推送刷新队列；管理员页面只作为站点维护、临时邮箱提取、CPA 仓管和公益池整理工具，不是普通用户收信流程的前置条件。
+仓库地址：<https://github.com/margetrp-hub/gpt-account-manager>
+
+## 我希望它解决的问题
+
+批量账号维护最烦的地方不是某一个 API 调不通，而是流程散在很多地方：邮箱资料在一处，临时邮箱 JWT 在一处，CPA 里又是一批 auth file，刷新失败以后还要再判断到底是邮箱没收到码、RT 失效、账号封禁、地区受限还是额度耗尽。
+
+这个工具想把这些步骤压到一个清楚的工作流里：
+
+- 收信链路和刷新链路分开，临时邮箱和微软邮箱也分开，不互相污染。
+- 每个错误尽量归类成人能处理的原因，而不是只扔一段英文堆栈。
+- 普通用户的数据默认留在当前浏览器，不因为多人使用同一个 VPS 就串到一起。
+- 真正需要服务端帮忙的流程，用 `X-Workspace-Id` 做工作区隔离。
+- CPA 仓管不是只扫 401，而是尽量告诉你这个账号现在到底是什么状态。
 
 ## 技术架构
 
-- 单进程 Python HTTP 服务：基于 `ThreadingHTTPServer` 提供静态页面、客户端 API、管理员 API、CPA 仓管 API 和健康检查。
-- 浏览器优先的数据模型：前台账号、邮箱、分类、邮件缓存、忽略列表和 CPA 设置默认保存在当前浏览器 `localStorage`，用户收信不依赖管理员预置账号。
-- 独立收信链路：Microsoft 邮箱走 Graph / OAuth / IMAP 相关接口；临时邮箱走 Cloudflare Temp Email Worker 兼容 API；两条链路独立配置、独立错误分类。
-- CPA 仓管链路：通过管理端点扫描 401 / 失效凭证，支持本地修复、删除目标 CPA auth file、推送账号到凭证刷新队列。
-- OAuth 刷新链路：后端协议状态机完成 OpenAI OAuth authorization-code 流程，生成 CPA / Sub2API 可用的 auth JSON；刷新过程强制显式代理，避免把 VPS 本机出口误当成用户浏览器出口。
-- 前后端分层：页面是原生 HTML/CSS/JS，后端只负责请求代理、协议登录、格式转换、CPA 对接和私有管理接口。
-- 部署模型：推荐 Nginx 对外，Python 服务监听 `127.0.0.1:8765`；自检和管理员接口需要 admin token/cookie。
+- 后端是单进程 Python HTTP 服务，基于 `ThreadingHTTPServer`，负责静态页面、客户端 API、管理员 API、CPA 对接、OAuth 协议流程和自检。
+- 前端是原生 HTML / CSS / JavaScript，没有前端构建步骤，部署时直接解压即可运行。
+- 浏览器优先保存数据：邮箱资料、分类、邮件缓存、忽略列表、CPA 设置默认保存在 `localStorage`。
+- 服务端工作区隔离：普通客户端调用服务端辅助 API 时，会发送浏览器生成的 `ctgptm.workspaceId`，服务端写入 `data/workspaces/<workspace-id>/`。
+- 邮箱链路独立：Microsoft 账号走 Graph / OAuth / IMAP 相关逻辑；临时邮箱走 Cloudflare Temp Email Worker 兼容 API。
+- CPA 仓管链路独立：通过目标 CPA 管理端点扫描、诊断、删除或替换 auth file，管理密钥不写入本工具服务端文件。
+- OAuth 刷新链路使用后端协议状态机，生成 CPA / Sub2API 可用的 auth JSON；刷新时要求显式填写代理 URL，避免误用 VPS 默认出口。
+- 自检、管理员页和管理员 API 在设置 `MAIL_PICKUP_ADMIN_TOKEN` 后变成私有入口。
 
-## Technical Overview
+## 页面说明
 
-GPT Account Manager is a browser-first GPT account operations assistant for Outlook / Microsoft OAuth mailboxes, temp-mail JWT accounts, verification-code retrieval, local mail cache management, CPA credential warehousing, OAuth credential refresh, and CPA / Sub2API auth JSON export.
+- `/`：账号管理台，导入邮箱、收信、查码、分组、删除本地缓存、推送刷新队列。
+- `/refresh.html`：凭证刷新队列，处理邮箱登录账号、CPA 同步、auth JSON 导出。
+- `/warehouse.html`：CPA 仓管，扫描异常账号、删除失效 auth、查看诊断原因。
+- `/converter.html`：本地 Session / auth JSON 转换工具。
+- `/login.html`：管理员登录页，写入 HttpOnly cookie，并可在当前浏览器记住 token。
+- `/admin.html`：管理员临时邮箱 JWT 提取和公共池导出辅助页。
+- `/health.html`：部署自检页，公共部署时需要管理员 token/cookie。
 
-Use it online: <https://mail.wsphl.cfd/>
+## 数据边界
 
-GitHub: <https://github.com/margetrp-hub/gpt-account-manager>
+前台收信默认不把用户邮箱资料写进服务器全局文件。普通用户导入的 Outlook 密码、client_id、refresh_token、临时邮箱 JWT、分类、邮件缓存和本地删除记录，都优先保存在当前浏览器。
 
-The main boundary is intentional: normal users import their own mailbox credentials on the front page and can receive mail without an administrator preloading accounts. Admin pages are operator tools for extraction, cleanup, CPA management, and public-pool workflows.
+当用户使用服务端辅助能力时，数据按工作区保存：
 
-Architecture:
+```text
+data/workspaces/<workspace-id>/accounts.json
+data/workspaces/<workspace-id>/temp_addresses.json
+data/workspaces/<workspace-id>/messages.json
+data/workspaces/<workspace-id>/refresh_results.json
+data/workspaces/<workspace-id>/login_history.json
+```
 
-- Single-process Python HTTP service built on `ThreadingHTTPServer` for static pages, client APIs, admin APIs, CPA APIs, and private health checks.
-- Browser-first persistence: imported accounts, mailboxes, groups, local message cache, ignored/deleted message keys, and CPA settings live in browser `localStorage` unless the user explicitly calls a server/admin workflow.
-- Separate mail pipelines: Microsoft accounts use the Microsoft Graph / OAuth / IMAP path; temp-mail accounts use a Cloudflare Temp Email Worker-compatible API. These paths stay separately configured and separately diagnosed.
-- CPA warehouse pipeline: scans target CPA/CLIProxyAPI credentials, classifies invalid auth files, supports deletion/repair, and can send selected accounts into the refresh queue.
-- OAuth refresh pipeline: a backend protocol state machine completes the OpenAI OAuth authorization-code flow and emits CPA / Sub2API-compatible auth JSON. Refresh requires an explicit proxy URL so the backend exit is controlled instead of silently using the VPS default route.
-- Frontend/backend split: native HTML/CSS/JS pages call a Python backend that handles request proxying, protocol login, format conversion, CPA integration, and private operator APIs.
-- Deployment model: Nginx terminates public traffic; the Python service binds to `127.0.0.1:8765`; health and admin surfaces are protected by admin token/cookie.
+管理员 `/api/*` 和 `/admin-api/*` 仍然是全局运维面，必须用 `MAIL_PICKUP_ADMIN_TOKEN` 保护。不要把管理员 token 发给普通用户。
 
-## References
+## 快速运行
 
-Thanks to these open-source projects and friends' work for ideas around ChatGPT session handling, CPA/Sub2API auth conversion, and operational tooling:
-
-- [maowuzz/chatgpt-session-forge](https://github.com/maowuzz/chatgpt-session-forge)
-- [gtxx3600/GPTSession2CPAandSub2API](https://github.com/gtxx3600/GPTSession2CPAandSub2API)
-
-This repository does not vendor or copy those projects directly; it keeps its own browser-first account workflow and CPA warehouse implementation.
-
-## What It Does
-
-- Import Outlook accounts: `email----password----client_id----refresh_token----category(optional)`.
-- Import temp mail accounts: `email----JWT----category(optional)`.
-- Auto-detect common TXT / JSON / CSV imports before saving.
-- Receive mail from Microsoft Graph / IMAP or a temp-mail Worker API.
-- Keep user-imported mailbox credentials in the current browser by default.
-- Cache received messages locally so users can search, copy codes, and hide/delete local messages.
-- Group mailboxes, mark banned/deactivated accounts, and push selected accounts to the credential refresh queue.
-- Provide a CPA warehouse page for scanning/cleaning invalid CPA credentials.
-- Provide an admin-only temp-mail JWT extractor and optional public-pool export.
-
-## Page Map
-
-- `/` - account management console for normal users.
-- `/refresh.html` - credential refresh queue.
-- `/warehouse.html` - CPA warehouse and invalid-account cleanup.
-- `/converter.html` - local ChatGPT session converter.
-- `/login.html` - admin token login, stores an HttpOnly cookie and remembers the token in this browser.
-- `/admin.html` - admin helper for batch temp-mail JWT extraction.
-- `/health.html` - private deployment self-check; requires admin token/cookie on public servers.
-
-## Data Boundary
-
-The front page is browser-first. User-imported Outlook credentials, temp-mail JWTs, categories, local mail cache, ignored/deleted message keys, and CPA warehouse settings are stored in `localStorage` unless the user explicitly uses a server-side helper.
-
-For normal client APIs, the browser creates a `ctgptm.workspaceId` value and sends it as `X-Workspace-Id`. Server-side helper data is written under `data/workspaces/<workspace-id>/`, including imported pickup credentials, temp-mail JWT sync results, credential refresh results, and login history. This keeps different browser users on the same VPS from reading or reusing each other's server-side helper data.
-
-Admin `/api/*` and `/admin-api/*` endpoints remain operator/global surfaces protected by `MAIL_PICKUP_ADMIN_TOKEN`. Release zips intentionally do not include `data/`, logs, or `node_modules`.
-
-## Compatibility Note
-
-Some internal environment variables, localStorage keys, and the default VPS service path still use the historical `CTGPTM` / `ctgptm-mail-assistant` prefix. They are kept for compatibility with existing browsers and VPS deployments, not as the public project name.
-
-## Quick Start
+本地直接运行：
 
 ```bash
 python3 server.py
 ```
 
-Open:
+打开：
 
 ```text
 http://127.0.0.1:8765/
 ```
 
-For local Windows development:
+Windows 开发环境：
 
 ```powershell
 cd D:\wiki\tools\gpt-account-manager
 py -3 server.py
 ```
 
-## VPS Environment
+## 环境变量
 
-Set a real admin token before exposing admin pages or APIs.
+最小配置：
 
 ```bash
 MAIL_PICKUP_HOST=127.0.0.1
 MAIL_PICKUP_PORT=8765
 MAIL_PICKUP_ADMIN_TOKEN=replace-with-a-long-random-token
 GPT_ACCOUNT_MANAGER_APP_TITLE=GPT账号管理助手
-GPT_ACCOUNT_MANAGER_TEMP_WORKER_URL=https://maip.wsphl.cfd
-# GPT_ACCOUNT_MANAGER_TEMP_SITE_PASSWORD=
-GPT_ACCOUNT_MANAGER_STORE_URL=https://shop.ohlaoo.com/
-GPT_ACCOUNT_MANAGER_RELAY_URL=https://ohlaoo.com/
-GPT_ACCOUNT_MANAGER_PUBLIC_POOL_URL=https://ohlaoo.com/
-# GPT_ACCOUNT_MANAGER_PUBLIC_POOL_API_URL=https://your-public-pool.example/api/import
-# GPT_ACCOUNT_MANAGER_PUBLIC_POOL_TOKEN=optional-pool-token
+GPT_ACCOUNT_MANAGER_TEMP_WORKER_URL=https://your-temp-worker.example
 MAIL_PICKUP_LOGIN_STRATEGY=protocol
 MAIL_PICKUP_NODE_BIN=node
+```
+
+可选配置：
+
+```bash
+# 如果临时邮箱 Worker 设置了站点口令
+# GPT_ACCOUNT_MANAGER_TEMP_SITE_PASSWORD=
+
+# 管理员公共池推送，不配置时只生成可复制 JSON
+# GPT_ACCOUNT_MANAGER_PUBLIC_POOL_API_URL=https://your-public-pool.example/api/import
+# GPT_ACCOUNT_MANAGER_PUBLIC_POOL_TOKEN=optional-pool-token
+
+# 只有需要连接内网、局域网、容器私网 CPA 管理端点时再开启
+# MAIL_PICKUP_CPA_ALLOW_REMOTE=1
+
+# 协议登录辅助
 # MAIL_PICKUP_FETCH_CONCURRENCY=8
 # MAIL_PICKUP_CHATGPT_LOGIN_URL=https://chatgpt.com/auth/login
 # OPENAI_OAUTH_REDIRECT_URI=http://localhost:1455/auth/callback
 # OPENAI_OAUTH_REFRESH_SCOPE=openid profile email
-# MAIL_PICKUP_CPA_ALLOW_REMOTE=1
 ```
 
-Automatic ChatGPT login must finish the OpenAI OAuth authorization-code flow and receive a real `refresh_token`; otherwise the refresh job is treated as failed instead of saving a half-usable session. Credential refresh requires an explicit proxy URL in the UI/API, for example `http://USER:PASS@host:port` or `socks5://USER:PASS@host:port`; do not use `127.0.0.1` on a VPS unless the proxy service is also running on that VPS. Protocol login uses Node.js for `openai_sentinel_token.cjs`. If you use `socks4://` or `socks5://` proxy during refresh, the VPS Python environment also needs PySocks:
+刷新流程会调用 `openai_sentinel_token.cjs`，所以部署机需要有 `node`。如果使用 `socks4://` 或 `socks5://` 代理，还需要安装 PySocks：
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y python3-socks
-cd /opt/ctgptm-mail-assistant
-sudo npm install --omit=dev --cache /tmp/ctgptm-npm-cache --no-audit --no-fund
+sudo npm install --omit=dev --cache /tmp/gpt-account-manager-npm-cache --no-audit --no-fund
 ```
 
-## systemd Deploy
+## VPS 部署
+
+推荐 Python 服务只监听 `127.0.0.1:8765`，外部流量由 Nginx 或其它反向代理转发。
 
 ```bash
 sudo unzip -o gpt-account-manager-*.zip -d /opt/ctgptm-mail-assistant
@@ -143,25 +136,34 @@ sudo systemctl restart ctgptm-mail-assistant
 sudo systemctl status ctgptm-mail-assistant --no-pager
 ```
 
-Recommended reverse proxy:
+历史部署路径里仍然保留 `ctgptm-mail-assistant`，是为了兼容已有 VPS 和浏览器 localStorage，不代表公开项目名。
 
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:8765;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
+## API 边界
 
-## API Boundary
+- `POST /client-api/fetch`：当前浏览器提交邮箱资料并取信，不写入全局账号池。
+- `POST /client-api/messages/delete`：删除/隐藏本地缓存邮件，不删除远端邮箱真实邮件。
+- `POST /client-api/cpa/scan-401`：扫描 CPA/CLIProxyAPI 管理端点，并诊断异常凭证原因。
+- `POST /client-api/cpa/repair-401`：对选中 CPA auth file 执行修复或删除。
+- `POST /admin-api/extract-jwts`：管理员临时邮箱 JWT 提取，需要 `MAIL_PICKUP_ADMIN_TOKEN`。
 
-- `POST /client-api/fetch` receives credentials from the current browser request and returns messages. It does not save user mailboxes on the server.
-- `POST /client-api/messages/delete` deletes/hides local cached messages for the browser workflow. It does not delete remote mailbox messages.
-- `POST /client-api/cpa/scan-401` scans a CPA/CLIProxyAPI management endpoint, diagnoses invalid or abnormal credentials, and classifies RT expiry, session expiry, deactivation, risk/region blocks, usage limits, non-OpenAI auth files, and probe failures. The management key is forwarded for this request and not stored by this tool.
-- `POST /client-api/cpa/repair-401` deletes invalid CPA auth files from the target CPA endpoint.
-- `POST /admin-api/extract-jwts` requires `MAIL_PICKUP_ADMIN_TOKEN` and is only for Cloudflare Temp Email Worker admin extraction.
+## 开源边界
 
-## Open Source Notes
+发布包和仓库不应该包含：
 
-Before publishing, review `SECURITY.md`, replace project-specific public URLs if needed, and add screenshots for the front page, refresh page, warehouse page, and admin login page.
+- `data/`
+- `.cache/`
+- `.ssh/`
+- `node_modules/`
+- `output/`
+- `release/`
+- 真实 `.env`
+- 邮箱密码、refresh_token、JWT、CPA management key、代理密码、管理员 token
+
+## 致谢
+
+这个项目做的时候参考过一些朋友的开源思路，尤其是 ChatGPT session 处理、CPA/Sub2API auth 转换和账号运维工具这几块。感谢：
+
+- [maowuzz/chatgpt-session-forge](https://github.com/maowuzz/chatgpt-session-forge)
+- [gtxx3600/GPTSession2CPAandSub2API](https://github.com/gtxx3600/GPTSession2CPAandSub2API)
+
+本仓库没有 vendoring 或直接复制这些项目，核心流程是围绕浏览器优先的账号管理、邮箱接码、CPA 仓管和 OAuth 刷新重新组织的。
