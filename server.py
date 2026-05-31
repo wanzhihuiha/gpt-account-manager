@@ -70,7 +70,7 @@ TEMP_ADDRESSES_FILE = DATA_DIR / "temp_addresses.json"
 REFRESH_RESULTS_FILE = DATA_DIR / "refresh_results.json"
 LOGIN_HISTORY_FILE = DATA_DIR / "login_history.json"
 LOGIN_DEBUG_DIR = DATA_DIR / "login_debug"
-APP_VERSION = "20260531-accordion-config"
+APP_VERSION = "20260531-docker-dns-links"
 
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
@@ -334,6 +334,20 @@ def health_payload() -> dict[str, Any]:
             "data": str(DATA_DIR),
         },
     }
+
+
+def public_top_links() -> list[dict[str, str]]:
+    candidates = [
+        ("商城", PUBLIC_STORE_URL),
+        ("中转站", PUBLIC_RELAY_URL),
+        ("公益站", PUBLIC_POOL_URL),
+    ]
+    links = []
+    for label, url in candidates:
+        normalized = normalize_base_url(url)
+        if normalized:
+            links.append({"label": label, "url": normalized})
+    return links
 
 
 def load_accounts(path: Path = ACCOUNTS_FILE) -> dict[str, MailAccount]:
@@ -1039,6 +1053,8 @@ def http_json_via_cached_ip_fallback(
 
 def mail_network_probe_hosts() -> list[tuple[str, int, str]]:
     hosts = [
+        ("auth.openai.com", 443, "OpenAI 授权"),
+        ("chatgpt.com", 443, "ChatGPT 登录"),
         ("login.microsoftonline.com", 443, "Microsoft Graph 登录"),
         ("graph.microsoft.com", 443, "Microsoft Graph 收件"),
         ("outlook.office.com", 443, "Microsoft IMAP token"),
@@ -7109,6 +7125,7 @@ class Handler(BaseHTTPRequestHandler):
                 "store_url": PUBLIC_STORE_URL,
                 "relay_url": PUBLIC_RELAY_URL,
                 "public_pool_url": PUBLIC_POOL_URL,
+                "top_links": public_top_links(),
                 "public_pool_api_configured": bool(PUBLIC_POOL_API_URL),
             })
             return

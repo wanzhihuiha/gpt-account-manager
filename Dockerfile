@@ -20,7 +20,7 @@ COPY . .
 RUN mkdir -p /app/data /app/.cache
 
 EXPOSE 8765
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8765/ >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=8s --start-period=20s --retries=3 \
+  CMD curl -fsS -H "Authorization: Bearer ${MAIL_PICKUP_ADMIN_TOKEN}" http://127.0.0.1:8765/network-health >/dev/null || exit 1
 
 CMD ["python", "/app/server.py"]

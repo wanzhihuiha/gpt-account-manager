@@ -73,6 +73,34 @@ git pull
 docker compose up -d --build
 ```
 
+Docker Compose 已显式设置容器 DNS：
+
+```yaml
+dns:
+  - 1.1.1.1
+  - 8.8.8.8
+  - 9.9.9.9
+```
+
+如果刷新凭证时报 `dns_failed`，先在容器里确认解析：
+
+```bash
+cd /opt/gpt-account-manager
+sudo docker compose exec gpt-account-manager getent hosts auth.openai.com
+sudo docker compose exec gpt-account-manager getent hosts chatgpt.com
+sudo docker compose exec gpt-account-manager getent hosts login.microsoftonline.com
+```
+
+自用站点如果要显示顶部的商城、中转站、公益站入口，在 `.env` 里填写：
+
+```bash
+GPT_ACCOUNT_MANAGER_STORE_URL=https://your-store.example
+GPT_ACCOUNT_MANAGER_RELAY_URL=https://your-relay.example
+GPT_ACCOUNT_MANAGER_PUBLIC_POOL_URL=https://your-public-pool.example
+```
+
+开源默认不填这些值，所以页面顶部不会显示这些外链。
+
 ### 从旧 systemd 部署迁移到 Docker
 
 如果你的云端已经按旧方式跑在 `/opt/ctgptm-mail-assistant`，可以用迁移脚本平移到 Docker。它会做这些事：
