@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GPT账号管理助手 - 凭证刷新</title>
-  <link rel="stylesheet" href="/styles.css?v=20260531-docker-phone-cleanup">
+  <link rel="stylesheet" href="/styles.css?v=20260531-accordion-config">
   <link rel="stylesheet" href="/forge-theme.css?v=20260531-open-source-links">
 </head>
 <body>
@@ -106,59 +106,102 @@
               <button id="clearQueue" class="ghost danger" type="button">清空队列</button>
             </div>
           </div>
-          <div class="refresh-options">
-            <label class="toggle">
-              <input id="useProxy" type="checkbox" checked disabled>
-              <span>代理必填</span>
-            </label>
-            <div class="proxy-input-wrap">
-              <input id="proxyUrl" placeholder="http://user:pass@host:port &#x6216; socks5://user:pass@host:port">
-              <div class="proxy-format-note">VPS &#x90E8;&#x7F72;&#x65F6;&#x4E0D;&#x8981;&#x586B;&#x81EA;&#x5DF1;&#x7535;&#x8111;&#x7684; 127.0.0.1&#xFF1B;&#x8FD9;&#x91CC;&#x8981;&#x586B; VPS &#x80FD;&#x8FDE;&#x5230;&#x7684;&#x4EE3;&#x7406;&#x5730;&#x5740;&#x3002;</div>
-            </div>
-            <input id="taskMode" type="hidden" value="login">
-            <input id="loginStrategy" type="hidden" value="protocol">
-            <input id="loginConcurrency" type="hidden" value="1">
-            <span class="protocol-mode-pill">单账号执行</span>
-          </div>
-          <div class="refresh-options cpa-options">
-            <label class="toggle">
-              <input id="autoUpdateCpa" type="checkbox">
-              <span>成功后同步 CPA</span>
-            </label>
-            <input id="cpaBaseUrl" placeholder="CPA 地址，例如 http://127.0.0.1:8317">
-            <input id="cpaManagementKey" type="password" placeholder="CPA 管理密钥">
-          </div>
-          <div class="credential-hint-bar">
-            <strong>先自动匹配账号管理页已有取码资料。</strong>
-            <span>只有匹配不到时，Outlook 在下方补四段；临时邮箱从 Worker 同步 JWT。</span>
-            <a href="/?import=mailbox">导入邮箱</a>
-          </div>
-          <div class="pickup-import-panel">
-            <textarea id="pickupImportText" rows="2" spellcheck="false" placeholder="Outlook 取码四段：邮箱----密码----client_id----refresh_token，可一次粘贴多行"></textarea>
-            <button id="importPickupCredentials" type="button">导入 Outlook 取码</button>
-          </div>
-          <div class="refresh-options temp-sync-options">
-            <label class="toggle">
-              <span>临时邮箱同步</span>
-            </label>
-            <input id="tempSyncApi" type="url" placeholder="Temp API，例如 https://your-temp-worker.example">
-            <input id="tempSyncAdminKey" type="password" autocomplete="off" placeholder="管理员密钥">
-            <input id="tempSyncSitePassword" type="password" autocomplete="off" placeholder="站点密钥，可选">
-            <button id="syncTempCredentials" type="button">同步队列 JWT</button>
-          </div>
-          <div class="phone-pool-panel">
-            <div class="phone-pool-head">
-              <strong>长效手机池</strong>
-              <span>格式：手机号 + 接码 API，绑定到单个账号；API 可用 {phone}、{email} 占位。</span>
-            </div>
-            <div class="phone-pool-form">
-              <input id="phoneNumber" placeholder="手机号，例如 +12025550123">
-              <input id="phoneApiUrl" placeholder="接码 API URL，例如 https://api.example.com/sms?phone={phone}">
-              <button id="addPhoneEntry" type="button">加入/更新</button>
-            </div>
-            <div id="phonePoolList" class="phone-pool-list">
-              <div class="phone-pool-empty">还没有长效手机。</div>
-            </div>
+          <div class="refresh-config-stack">
+            <details class="refresh-config-block" open>
+              <summary>
+                <span>
+                  <strong>代理设置</strong>
+                  <em>刷新必填；单账号执行</em>
+                </span>
+                <b>必填</b>
+              </summary>
+              <div class="refresh-config-body refresh-options">
+                <label class="toggle">
+                  <input id="useProxy" type="checkbox" checked disabled>
+                  <span>代理必填</span>
+                </label>
+                <div class="proxy-input-wrap">
+                  <input id="proxyUrl" placeholder="http://user:pass@host:port &#x6216; socks5://user:pass@host:port">
+                  <div class="proxy-format-note">VPS &#x90E8;&#x7F72;&#x65F6;&#x4E0D;&#x8981;&#x586B;&#x81EA;&#x5DF1;&#x7535;&#x8111;&#x7684; 127.0.0.1&#xFF1B;&#x8FD9;&#x91CC;&#x8981;&#x586B; VPS &#x80FD;&#x8FDE;&#x5230;&#x7684;&#x4EE3;&#x7406;&#x5730;&#x5740;&#x3002;</div>
+                </div>
+                <input id="taskMode" type="hidden" value="login">
+                <input id="loginStrategy" type="hidden" value="protocol">
+                <input id="loginConcurrency" type="hidden" value="1">
+                <span class="protocol-mode-pill">单账号执行</span>
+              </div>
+            </details>
+
+            <details class="refresh-config-block">
+              <summary>
+                <span>
+                  <strong>CPA 同步</strong>
+                  <em>成功后自动写回仓管</em>
+                </span>
+                <b>可选</b>
+              </summary>
+              <div class="refresh-config-body refresh-options cpa-options">
+                <label class="toggle">
+                  <input id="autoUpdateCpa" type="checkbox">
+                  <span>成功后同步 CPA</span>
+                </label>
+                <input id="cpaBaseUrl" placeholder="CPA 地址，例如 http://127.0.0.1:8317">
+                <input id="cpaManagementKey" type="password" placeholder="CPA 管理密钥">
+              </div>
+            </details>
+
+            <details class="refresh-config-block">
+              <summary>
+                <span>
+                  <strong>取码邮箱补充</strong>
+                  <em>Outlook 四段或临时邮箱 JWT 同步</em>
+                </span>
+                <b>导入</b>
+              </summary>
+              <div class="refresh-config-body">
+                <div class="credential-hint-bar">
+                  <strong>先自动匹配账号管理页已有取码资料。</strong>
+                  <span>只有匹配不到时，Outlook 在下方补四段；临时邮箱从 Worker 同步 JWT。</span>
+                  <a href="/?import=mailbox">导入邮箱</a>
+                </div>
+                <div class="pickup-import-panel">
+                  <textarea id="pickupImportText" rows="2" spellcheck="false" placeholder="Outlook 取码四段：邮箱----密码----client_id----refresh_token，可一次粘贴多行"></textarea>
+                  <button id="importPickupCredentials" type="button">导入 Outlook 取码</button>
+                </div>
+                <div class="refresh-options temp-sync-options">
+                  <label class="toggle">
+                    <span>临时邮箱同步</span>
+                  </label>
+                  <input id="tempSyncApi" type="url" placeholder="Temp API，例如 https://your-temp-worker.example">
+                  <input id="tempSyncAdminKey" type="password" autocomplete="off" placeholder="管理员密钥">
+                  <input id="tempSyncSitePassword" type="password" autocomplete="off" placeholder="站点密钥，可选">
+                  <button id="syncTempCredentials" type="button">同步队列 JWT</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="refresh-config-block phone-config-block">
+              <summary>
+                <span>
+                  <strong>长效手机池</strong>
+                  <em>手机号绑定单个账号，需要手机验证时取码</em>
+                </span>
+                <b>接码</b>
+              </summary>
+              <div class="refresh-config-body phone-pool-panel">
+                <div class="phone-pool-head">
+                  <strong>手机号 + 接码 API</strong>
+                  <span>API 可用 {phone}、{email} 占位。</span>
+                </div>
+                <div class="phone-pool-form">
+                  <input id="phoneNumber" placeholder="手机号，例如 +12025550123">
+                  <input id="phoneApiUrl" placeholder="接码 API URL，例如 https://api.example.com/sms?phone={phone}">
+                  <button id="addPhoneEntry" type="button">加入/更新</button>
+                </div>
+                <div id="phonePoolList" class="phone-pool-list">
+                  <div class="phone-pool-empty">还没有长效手机。</div>
+                </div>
+              </div>
+            </details>
           </div>
           <div class="login-stats">
             <span>队列 <strong id="queueTotal">0</strong></span>
