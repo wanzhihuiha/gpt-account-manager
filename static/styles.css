@@ -2723,13 +2723,13 @@ body.modal-open {
 
 .mailbox-manager-nav {
   display: grid;
-  grid-template-rows: auto repeat(4, auto) 1fr;
+  grid-template-rows: auto repeat(3, auto) 1fr;
   gap: 8px;
   padding: 10px;
-  background: linear-gradient(180deg, rgba(30, 120, 255, 0.92), rgba(15, 87, 204, 0.9));
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.34);
-  box-shadow: 0 18px 38px rgba(26, 91, 190, 0.24);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(239, 247, 255, 0.84));
+  color: var(--ink);
+  border-color: rgba(123, 154, 204, 0.28);
+  box-shadow: 0 18px 38px rgba(70, 105, 160, 0.14);
 }
 
 .mailbox-manager-brand {
@@ -2737,7 +2737,7 @@ body.modal-open {
   align-items: center;
   gap: 10px;
   padding: 8px 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid rgba(123, 154, 204, 0.22);
   min-width: 0;
 }
 
@@ -2747,7 +2747,8 @@ body.modal-open {
   display: inline-grid;
   place-items: center;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(47, 117, 255, 0.1);
+  color: var(--accent);
   font-size: 16px;
 }
 
@@ -2757,13 +2758,14 @@ body.modal-open {
 }
 
 .mailbox-manager-brand strong {
+  color: var(--ink);
   font-size: 14px;
   font-weight: 900;
 }
 
 .mailbox-manager-brand em {
   margin-top: 2px;
-  color: rgba(255, 255, 255, 0.72);
+  color: #72839c;
   font-style: normal;
   font-size: 11px;
   font-weight: 750;
@@ -2777,16 +2779,16 @@ body.modal-open {
   justify-content: space-between;
   gap: 8px;
   padding: 7px 8px;
-  border-color: transparent;
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.82);
+  border-color: rgba(123, 154, 204, 0.18);
+  background: rgba(255, 255, 255, 0.54);
+  color: #49617f;
 }
 
 .mailbox-side-link:hover:not(:disabled),
 .mailbox-side-link.active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--accent-strong);
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(47, 117, 255, 0.32);
 }
 
 .mailbox-side-link strong {
@@ -2795,7 +2797,8 @@ body.modal-open {
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(47, 117, 255, 0.1);
+  color: var(--accent);
   font-size: 11px;
 }
 
@@ -2804,15 +2807,15 @@ body.modal-open {
   display: grid;
   gap: 4px;
   padding: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(123, 154, 204, 0.2);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.58);
   min-width: 0;
 }
 
 .mailbox-side-note span,
 .mailbox-side-note em {
-  color: rgba(255, 255, 255, 0.7);
+  color: #75859e;
   font-size: 10px;
   font-style: normal;
   font-weight: 750;
@@ -2820,7 +2823,7 @@ body.modal-open {
 
 .mailbox-side-note strong {
   overflow: hidden;
-  color: #fff;
+  color: var(--ink);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2849,7 +2852,7 @@ body.modal-open {
 
 .mailbox-manager-stats {
   display: grid;
-  grid-template-columns: repeat(4, auto);
+  grid-template-columns: repeat(3, auto);
   gap: 6px;
   flex: 0 0 auto;
 }
@@ -2965,8 +2968,8 @@ body.modal-open {
   border-bottom: 0;
 }
 
-.mailbox-manager-table tr.is-missing td {
-  background: rgba(255, 245, 231, 0.48);
+.mailbox-manager-table tr.has-mail-error td {
+  background: rgba(255, 242, 244, 0.6);
 }
 
 .mailbox-col-select {
@@ -3010,11 +3013,8 @@ body.modal-open {
   white-space: nowrap;
 }
 
-.mailbox-inline-warning {
-  display: block;
-  margin-top: 3px;
-  color: #b76b1f;
-  font-size: 10px;
+.mailbox-email em {
+  color: var(--danger);
   font-style: normal;
   font-weight: 800;
 }

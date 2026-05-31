@@ -15,11 +15,9 @@ const els = {
   sideTotal: document.querySelector("#sideTotal"),
   sideMicrosoft: document.querySelector("#sideMicrosoft"),
   sideTemp: document.querySelector("#sideTemp"),
-  sideMissing: document.querySelector("#sideMissing"),
   statTotal: document.querySelector("#statTotal"),
   statMicrosoft: document.querySelector("#statMicrosoft"),
   statTemp: document.querySelector("#statTemp"),
-  statMissing: document.querySelector("#statMissing"),
   searchInput: document.querySelector("#mailboxSearchInput"),
   sourceFilter: document.querySelector("#mailboxSourceFilter"),
   groupFilter: document.querySelector("#mailboxGroupFilter"),
@@ -272,9 +270,13 @@ function accountMissingCredential(account) {
 }
 
 function accountKindLabel(account) {
-  if (account.source === "temp") return "临时取码";
-  const password = usableSecret(account.password) ? "有密码" : "无密码";
-  return `Outlook ${password}`;
+  if (account.source === "temp") return "JWT";
+  return usableSecret(account.password) ? "微软 OAuth+密码" : "微软 OAuth";
+}
+
+function accountHasError(account) {
+  const status = String(account.last_status || "").toLowerCase();
+  return ["error", "failed"].includes(status) || Boolean(account.last_error || account.last_error_code || account.last_error_label);
 }
 
 function secretPreview(value, empty = "未填写") {
@@ -480,7 +482,6 @@ function filteredAccounts() {
   return state.accounts.filter((account) => {
     if (source === "microsoft" && account.source !== "microsoft") return false;
     if (source === "temp" && account.source !== "temp") return false;
-    if (source === "missing" && !accountMissingCredential(account)) return false;
     if (group !== "all" && (account.category || "") !== group) return false;
     if (!query) return true;
     const haystack = [account.email, account.category, accountKindLabel(account), account.source].join(" ").toLowerCase();
@@ -504,15 +505,12 @@ function renderStats(rows) {
   const total = state.accounts.length;
   const microsoft = state.accounts.filter((account) => account.source === "microsoft").length;
   const temp = state.accounts.filter((account) => account.source === "temp").length;
-  const missing = state.accounts.filter(accountMissingCredential).length;
   els.sideTotal.textContent = total;
   els.sideMicrosoft.textContent = microsoft;
   els.sideTemp.textContent = temp;
-  els.sideMissing.textContent = missing;
   els.statTotal.textContent = total;
   els.statMicrosoft.textContent = microsoft;
   els.statTemp.textContent = temp;
-  els.statMissing.textContent = missing;
   els.pageSummary.textContent = `${rows.length} 条 / 共 ${total} 条`;
 }
 
@@ -535,17 +533,16 @@ function renderTable() {
   } else {
     els.tableBody.innerHTML = visible.map((account, index) => {
       const selected = state.selected.has(account.id);
-      const missing = accountMissingCredential(account);
+      const hasError = accountHasError(account);
       const tokenValue = account.source === "temp" ? account.jwt : account.refresh_token;
       const passwordValue = account.source === "temp" ? account.site_password : account.password;
       const group = account.category || "未分组";
       return `
-        <tr data-id="${escapeHtml(account.id)}" class="${missing ? "is-missing" : ""}">
+        <tr data-id="${escapeHtml(account.id)}" class="${hasError ? "has-mail-error" : ""}">
           <td><input class="mailbox-row-check" type="checkbox" ${selected ? "checked" : ""} aria-label="选择 ${escapeHtml(account.email)}"></td>
           <td>${start + index + 1}</td>
           <td>
-            <strong class="mailbox-email">${escapeHtml(account.email)}</strong>
-            ${missing ? `<em class="mailbox-inline-warning">资料不完整</em>` : ""}
+            <strong class="mailbox-email">${escapeHtml(account.email)}${hasError ? `<em>（错误）</em>` : ""}</strong>
           </td>
           <td>${secretPreview(passwordValue, account.source === "temp" ? "无站点密钥" : "未保存密码")}</td>
           <td><span class="mailbox-group-pill">${escapeHtml(group)}</span></td>
@@ -673,13 +670,11 @@ function updateImportPreview() {
   const { rows, errors } = parseLines(text, source);
   const microsoft = rows.filter((row) => row.source === "microsoft").length;
   const temp = rows.filter((row) => row.source === "temp").length;
-  const missing = rows.filter(accountMissingCredential).length;
-  els.importPreview.className = `import-preview ${errors.length || missing ? "warning" : "ok"}`;
+  els.importPreview.className = `import-preview ${errors.length ? "warning" : "ok"}`;
   els.importPreview.textContent = [
     `识别 ${rows.length} 个邮箱`,
     microsoft ? `Outlook ${microsoft}` : "",
     temp ? `临时邮箱 ${temp}` : "",
-    missing ? `资料不完整 ${missing}` : "",
     errors.length ? `格式错误 ${errors.length}` : "",
   ].filter(Boolean).join(" · ") || "没有识别到邮箱。";
 }

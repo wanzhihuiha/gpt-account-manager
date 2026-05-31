@@ -211,6 +211,33 @@ button:not(.primary):not(.button-primary) {
   overflow: hidden;
 }
 
+.mailbox-manager-nav.panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(239, 247, 255, 0.84)) !important;
+  color: var(--forge-text) !important;
+}
+
+.mailbox-manager-brand strong,
+.mailbox-side-note strong {
+  color: var(--forge-text) !important;
+}
+
+.mailbox-manager-brand em,
+.mailbox-side-note span,
+.mailbox-side-note em {
+  color: var(--forge-muted) !important;
+}
+
+.mailbox-side-link {
+  background: rgba(255, 255, 255, 0.56) !important;
+  color: #49617f !important;
+}
+
+.mailbox-side-link.active,
+.mailbox-side-link:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: var(--forge-accent) !important;
+}
+
 .panel-head,
 .section-head {
   border-color: var(--forge-line) !important;

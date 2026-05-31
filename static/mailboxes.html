@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GPT账号管理助手 - 邮箱管理</title>
-  <link rel="stylesheet" href="/styles.css?v=20260601-mailbox-manager">
+  <link rel="stylesheet" href="/styles.css?v=20260601-mailbox-polish">
   <link rel="stylesheet" href="/forge-theme.css?v=20260531-open-source-links">
   <script src="/nav-links.js?v=20260531-docker-dns-links" defer></script>
 </head>
@@ -78,10 +78,6 @@
           <span>临时邮箱</span>
           <strong id="sideTemp">0</strong>
         </button>
-        <button class="mailbox-side-link" type="button" data-manager-filter="missing">
-          <span>资料不完整</span>
-          <strong id="sideMissing">0</strong>
-        </button>
         <div class="mailbox-side-note">
           <span>工作空间</span>
           <strong id="workspaceText">-</strong>
@@ -94,13 +90,12 @@
           <div>
             <p class="eyebrow">Mailbox Management</p>
             <h1 id="mailbox-manager-title">邮箱管理</h1>
-            <p>管理所有取码邮箱，支持 Outlook 四段和临时邮箱 JWT。</p>
+            <p>管理所有取码邮箱，按 Outlook 邮箱和临时邮箱分开整理。</p>
           </div>
           <div class="mailbox-manager-stats" aria-label="邮箱统计">
             <span>总数 <strong id="statTotal">0</strong></span>
             <span>Outlook <strong id="statMicrosoft">0</strong></span>
             <span>临时 <strong id="statTemp">0</strong></span>
-            <span>缺资料 <strong id="statMissing">0</strong></span>
           </div>
         </div>
 
@@ -110,7 +105,6 @@
             <option value="all">全部来源</option>
             <option value="microsoft">Outlook</option>
             <option value="temp">临时邮箱</option>
-            <option value="missing">资料不完整</option>
           </select>
           <select id="mailboxGroupFilter" aria-label="分组筛选">
             <option value="all">全部分组</option>
@@ -188,8 +182,8 @@
         <span>导入类型</span>
         <select id="mailboxImportSource">
           <option value="auto">自动识别</option>
-          <option value="microsoft">Outlook 四段</option>
-          <option value="temp">临时邮箱 JWT</option>
+          <option value="microsoft">Outlook 邮箱</option>
+          <option value="temp">临时邮箱</option>
         </select>
       </label>
       <label class="modal-field" id="mailboxTempApiField">
@@ -207,7 +201,7 @@
       </label>
       <label class="modal-field">
         <span>邮箱数据</span>
-        <textarea id="mailboxImportText" rows="8" spellcheck="false" placeholder="Outlook：email----password----client_id----refresh_token----分组&#10;临时邮箱：email----jwt----api_url----site_password----分组"></textarea>
+        <textarea id="mailboxImportText" rows="8" spellcheck="false" placeholder="每行一个邮箱，直接粘贴从邮箱助手或临时邮箱池导出的内容"></textarea>
       </label>
       <div id="mailboxImportPreview" class="import-preview">粘贴后会先预检格式。</div>
       <div class="modal-actions">
@@ -217,6 +211,6 @@
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/mailboxes.js?v=20260601-mailbox-manager" defer></script>
+  <script src="/mailboxes.js?v=20260601-mailbox-polish" defer></script>
 </body>
 </html>
