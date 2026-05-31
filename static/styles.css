@@ -970,6 +970,8 @@ button:disabled {
 
 .phone-pool-head,
 .phone-pool-form,
+.phone-mode-tabs,
+.phone-code-panel,
 .phone-pool-row,
 .phone-pool-actions {
   display: flex;
@@ -1002,6 +1004,110 @@ button:disabled {
 
 .phone-pool-form input {
   min-height: 30px;
+}
+
+.phone-mode-tabs {
+  width: fit-content;
+  padding: 3px;
+  border: 1px solid rgba(142, 165, 199, 0.22);
+  border-radius: 999px;
+  background: rgba(238, 246, 255, 0.74);
+}
+
+.phone-mode-tabs label {
+  cursor: pointer;
+}
+
+.phone-mode-tabs input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.phone-mode-tabs span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #526983;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.phone-mode-tabs input:checked + span {
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(37, 99, 235, 0.22);
+}
+
+.phone-batch-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.phone-batch-panel textarea {
+  min-height: 58px;
+  max-height: 120px;
+  resize: vertical;
+  padding: 7px 8px;
+  border: 1px solid rgba(142, 165, 199, 0.34);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.phone-batch-panel button {
+  min-height: 58px;
+  white-space: nowrap;
+}
+
+.phone-code-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.72fr) minmax(160px, 1fr) auto auto;
+  padding: 7px;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 8px;
+  background: rgba(239, 246, 255, 0.62);
+}
+
+.phone-code-panel > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.phone-code-panel strong,
+.phone-code-panel span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-code-panel strong {
+  color: #25405f;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.phone-code-panel span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.phone-code-panel input {
+  min-height: 30px;
+}
+
+.phone-code-panel button {
+  min-height: 30px;
+  white-space: nowrap;
 }
 
 .phone-pool-list {
@@ -1053,6 +1159,34 @@ button:disabled {
   min-height: 25px;
   padding: 3px 7px;
   font-size: 11px;
+}
+
+.queue-phone-chip {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 3px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(236, 245, 255, 0.8);
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.queue-action-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.queue-action-stack input {
+  width: 72px;
+  min-height: 24px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  text-align: center;
 }
 
 .refresh-options .toggle {

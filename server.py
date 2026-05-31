@@ -72,7 +72,7 @@ LOGIN_HISTORY_FILE = DATA_DIR / "login_history.json"
 LOGIN_DEBUG_DIR = DATA_DIR / "login_debug"
 UPGRADE_REQUEST_FILE = DATA_DIR / "upgrade_request.json"
 UPGRADE_RESULT_FILE = DATA_DIR / "upgrade_result.json"
-APP_VERSION = "20260531-warehouse-plan-stats"
+APP_VERSION = "20260531-manual-email-code-live"
 
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
@@ -3396,7 +3396,11 @@ class ChatGPTProtocolLogin:
             return continue_url
 
         self.log("waiting_code", "Protocol login: waiting for email code")
-        code = fetch_login_verification_code(self.payload, since=issued_after, attempts=12, delay=5)
+        code = manual_email_code_for_payload(self.payload)
+        if code:
+            self.log("waiting_code", "使用手动填写的邮箱验证码", "info")
+        else:
+            code = fetch_login_verification_code(self.payload, since=issued_after, attempts=12, delay=5)
         if not code:
             self.log("send_code", "Protocol login: request a fresh email code", "warning")
             resent_after = time.time()
@@ -5329,6 +5333,54 @@ def set_login_job_status(job_id: str, status: str, **updates: Any) -> None:
                 pass
 
 
+def clean_manual_email_code(value: Any) -> str:
+    code = coerce_text(value)
+    return code if re.fullmatch(r"\d{4,8}", code) else ""
+
+
+def manual_email_code_for_payload(payload: dict[str, Any]) -> str:
+    code = clean_manual_email_code(first_text(
+        payload.get("manual_email_code"),
+        payload.get("email_code"),
+        payload.get("verification_code"),
+    ))
+    if code:
+        return code
+    job_id = coerce_text(payload.get("job_id"))
+    if not job_id:
+        return ""
+    with LOGIN_JOBS_LOCK:
+        job = LOGIN_JOBS.get(job_id)
+        if not job:
+            return ""
+        return clean_manual_email_code(job.get("manual_email_code"))
+
+
+def set_login_manual_email_code(payload: dict[str, Any], workspace_id: str = "public") -> dict[str, Any]:
+    job_id = coerce_text(payload.get("job_id") or payload.get("jobId"))
+    code = clean_manual_email_code(first_text(
+        payload.get("manual_email_code"),
+        payload.get("email_code"),
+        payload.get("verification_code"),
+    ))
+    if not job_id:
+        raise RuntimeError("登录任务不存在")
+    if not code:
+        raise RuntimeError("请输入 4-8 位邮箱验证码")
+    expected_workspace = normalize_workspace_id(workspace_id)
+    with LOGIN_JOBS_LOCK:
+        job = LOGIN_JOBS.get(job_id)
+        if not job:
+            raise RuntimeError("登录任务不存在")
+        job_workspace = normalize_workspace_id(job.get("workspace_id"))
+        if expected_workspace and job_workspace != expected_workspace:
+            raise RuntimeError("登录任务不属于当前工作区")
+        job["manual_email_code"] = code
+        job["updated_at"] = iso_now()
+    append_login_log(job_id, "已收到手动邮箱验证码", "info", "manual_email_code")
+    return {"success": True, "job_id": job_id}
+
+
 def find_latest_code(messages: list[dict[str, Any]], *, after_ts: float = 0) -> str:
     sorted_messages = sorted(messages, key=message_sort_value, reverse=True)
     for message in sorted_messages:
@@ -5352,6 +5404,11 @@ def fetch_login_verification_code(payload: dict[str, Any], *, since: float = 0, 
     total_attempts = max(1, attempts)
     last_summary = ""
     for attempt in range(1, total_attempts + 1):
+        manual_code = manual_email_code_for_payload(payload)
+        if manual_code:
+            if job_id:
+                append_login_log(job_id, "使用手动填写的邮箱验证码", "info", "manual_email_code")
+            return manual_code
         data = fetch_transient_client_mail({
             "source": "all",
             "provider": "auto",
@@ -7461,6 +7518,16 @@ class Handler(BaseHTTPRequestHandler):
                     "success": False,
                     "error": str(exc)[:500],
                     "error_code": "phone_code_fetch_failed",
+                }, status=HTTPStatus.BAD_REQUEST)
+            return
+        if self.path == "/client-api/cpa/login-manual-code":
+            try:
+                self.send_json(set_login_manual_email_code(self.read_json(), self.workspace_id()))
+            except Exception as exc:
+                self.send_json({
+                    "success": False,
+                    "error": str(exc)[:500],
+                    "error_code": "manual_email_code_failed",
                 }, status=HTTPStatus.BAD_REQUEST)
             return
         if self.path == "/client-api/cpa/login-start":

@@ -51,6 +51,7 @@ const state = {
   runProxyIps: new Set(),
   lastLog: null,
   logThrottle: new Map(),
+  manualCodeTimers: new Map(),
 };
 
 const MAX_LOGIN_ATTEMPTS = 2;
@@ -132,6 +133,16 @@ const els = {
   importPickupCredentials: document.querySelector("#importPickupCredentials"),
   phoneNumber: document.querySelector("#phoneNumber"),
   phoneApiUrl: document.querySelector("#phoneApiUrl"),
+  phoneModeBatch: document.querySelector("#phoneModeBatch"),
+  phoneModeOneToOne: document.querySelector("#phoneModeOneToOne"),
+  phoneBatchPanel: document.querySelector("#phoneBatchPanel"),
+  phoneBatchText: document.querySelector("#phoneBatchText"),
+  importPhoneBatch: document.querySelector("#importPhoneBatch"),
+  phoneCodeAccount: document.querySelector("#phoneCodeAccount"),
+  phoneCodeCurrent: document.querySelector("#phoneCodeCurrent"),
+  manualPhoneCode: document.querySelector("#manualPhoneCode"),
+  saveManualPhoneCode: document.querySelector("#saveManualPhoneCode"),
+  pollSelectedPhone: document.querySelector("#pollSelectedPhone"),
   addPhoneEntry: document.querySelector("#addPhoneEntry"),
   phonePoolList: document.querySelector("#phonePoolList"),
 };
@@ -148,6 +159,8 @@ if (els.taskMode) els.taskMode.value = settings.task_mode || "login";
 if (els.tempSyncApi) els.tempSyncApi.value = settings.temp_sync_api || "";
 if (els.tempSyncAdminKey) els.tempSyncAdminKey.value = settings.temp_sync_admin_key || "";
 if (els.tempSyncSitePassword) els.tempSyncSitePassword.value = settings.temp_sync_site_password || "";
+if (els.phoneModeBatch) els.phoneModeBatch.checked = settings.phone_pool_mode === "batch";
+if (els.phoneModeOneToOne) els.phoneModeOneToOne.checked = settings.phone_pool_mode !== "batch";
 if (els.loginStrategy) els.loginStrategy.value = "protocol";
 if (els.taskMode) els.taskMode.value = "login";
 
@@ -614,6 +627,7 @@ function saveSettings() {
     temp_sync_api: els.tempSyncApi ? els.tempSyncApi.value.trim() : "",
     temp_sync_admin_key: els.tempSyncAdminKey ? els.tempSyncAdminKey.value.trim() : "",
     temp_sync_site_password: els.tempSyncSitePassword ? els.tempSyncSitePassword.value.trim() : "",
+    phone_pool_mode: currentPhoneMode(),
   });
 }
 
@@ -665,6 +679,14 @@ function normalizeQueue(value) {
       error: row.error || "",
       error_code: row.error_code || "",
       error_hint: row.error_hint || "",
+      phone_id: row.phone_id || row.phone_binding_id || "",
+      phone_number: row.phone_number || "",
+      phone_api_url: row.phone_api_url || "",
+      phone_code: String(row.phone_code || row.manual_phone_code || ""),
+      phone_code_message: String(row.phone_code_message || ""),
+      phone_code_checked_at: String(row.phone_code_checked_at || ""),
+      manual_phone_code: String(row.manual_phone_code || ""),
+      manual_email_code: String(row.manual_email_code || row.email_code || ""),
       logs: Array.isArray(row.logs) ? row.logs : [],
     };
     return sanitizeLegacyRefreshRow(normalized).row;
@@ -684,6 +706,7 @@ function normalizePhonePool(value) {
     seen.add(key);
     return {
       id,
+      mode: item?.mode === "bound" || item?.mode === "one_to_one" ? "bound" : "batch",
       phone,
       api_url: apiUrl,
       account_email: String(item?.account_email || item?.accountEmail || "").trim().toLowerCase(),
@@ -901,6 +924,9 @@ function renderQueueProgress(counts) {
 }
 
 function renderQueue() {
+  const activeCodeInput = document.activeElement?.closest?.(".queue-email-code");
+  const activeCodeRowId = activeCodeInput?.closest("tr")?.dataset.id || "";
+  const activeCodeCursor = activeCodeInput ? activeCodeInput.selectionStart : null;
   const counts = { idle: 0, queued: 0, running: 0, success: 0, failed: 0 };
   state.queue.forEach((row) => {
     const status = rowState(row).status || "idle";
@@ -936,10 +962,26 @@ function renderQueue() {
         <td><span class="source-badge ${escapeHtml(row.source === "microsoft" ? "ms" : "temp")}">${escapeHtml(row.service || "本地邮箱")}</span></td>
         <td><span class="login-status ${escapeHtml(status)}">${escapeHtml(loginLabel(status))}</span></td>
         <td><div class="login-error" title="${escapeHtml(errorText)}">${escapeHtml(errorText)}</div></td>
-        <td><button class="login-one" type="button" ${rawStatus === "running" || rawStatus === "queued" ? "disabled" : ""}>执行</button></td>
+        <td>
+          <div class="queue-action-stack">
+            <input class="queue-email-code" inputmode="numeric" autocomplete="one-time-code" value="${escapeHtml(row.manual_email_code || "")}" placeholder="邮箱验证码">
+            <button class="login-one" type="button" ${rawStatus === "running" || rawStatus === "queued" ? "disabled" : ""}>执行</button>
+          </div>
+        </td>
       </tr>
     `;
   }).join("");
+  if (activeCodeRowId) {
+    const nextRow = Array.from(els.queueBody.querySelectorAll("tr")).find((row) => row.dataset.id === activeCodeRowId);
+    const nextInput = nextRow?.querySelector(".queue-email-code");
+    if (nextInput) {
+      nextInput.focus();
+      if (activeCodeCursor !== null) {
+        const cursor = Math.min(activeCodeCursor, nextInput.value.length);
+        nextInput.setSelectionRange(cursor, cursor);
+      }
+    }
+  }
 }
 
 function selectedQueueRows({ failedOnly = false } = {}) {
@@ -953,10 +995,42 @@ function selectedSingleQueueRow() {
   return rows.length === 1 ? rows[0] : null;
 }
 
+function currentPhoneMode() {
+  return els.phoneModeBatch && els.phoneModeBatch.checked ? "batch" : "one_to_one";
+}
+
+function phoneCodeForRow(row, entry = null) {
+  return String(row?.manual_phone_code || row?.phone_code || entry?.last_code || "").trim();
+}
+
 function phoneEntryForRow(row) {
   const key = accountEmailKey(row.email || row.name);
-  if (!key) return null;
-  return state.phonePool.find((item) => accountEmailKey(item.account_email) === key) || null;
+  if (row.phone_id) {
+    const byId = state.phonePool.find((item) => item.id === row.phone_id);
+    if (byId) return byId;
+  }
+  if (row.phone_number) {
+    const byPhone = state.phonePool.find((item) => item.phone === row.phone_number);
+    if (byPhone) return byPhone;
+  }
+  if (key) {
+    const bound = state.phonePool.find((item) => accountEmailKey(item.account_email) === key);
+    if (bound) return bound;
+  }
+  return null;
+}
+
+function ensurePhoneEntryForRow(row) {
+  const existing = phoneEntryForRow(row);
+  if (existing) return existing;
+  const used = new Set(state.queue.map((item) => item.phone_id).filter(Boolean));
+  const entry = state.phonePool.find((item) => item.mode === "batch" && !accountEmailKey(item.account_email) && !used.has(item.id));
+  if (!entry) return null;
+  row.phone_id = entry.id;
+  row.phone_number = entry.phone;
+  row.phone_api_url = entry.api_url;
+  saveQueue();
+  return entry;
 }
 
 function formatPhoneTime(value) {
@@ -970,22 +1044,26 @@ function formatPhoneTime(value) {
   });
 }
 
+
 function renderPhonePool() {
   if (!els.phonePoolList) return;
+  if (els.phoneBatchPanel) els.phoneBatchPanel.hidden = currentPhoneMode() !== "batch";
   if (!state.phonePool.length) {
     els.phonePoolList.innerHTML = '<div class="phone-pool-empty">还没有长效手机。</div>';
+    renderSelectedPhoneCodePanel();
     return;
   }
   els.phonePoolList.innerHTML = state.phonePool.map((item) => {
     const status = item.last_code
       ? `最近验证码 ${item.last_code}${item.last_checked_at ? ` · ${formatPhoneTime(item.last_checked_at)}` : ""}`
       : (item.status === "error" ? "取码失败" : "等待取码");
+    const mode = item.mode === "bound" ? "1对1" : "批量";
     const bound = item.account_email ? item.account_email : "未绑定账号";
     return `
       <div class="phone-pool-row" data-id="${escapeHtml(item.id)}">
         <div>
           <strong>${escapeHtml(item.phone)}</strong>
-          <em>${escapeHtml(bound)} · ${escapeHtml(status)}</em>
+          <em>${escapeHtml(mode)} · ${escapeHtml(bound)} · ${escapeHtml(status)}</em>
         </div>
         <div class="phone-pool-actions">
           <button class="bind-phone" type="button">绑定选中</button>
@@ -995,6 +1073,26 @@ function renderPhonePool() {
       </div>
     `;
   }).join("");
+  renderSelectedPhoneCodePanel();
+}
+
+function renderSelectedPhoneCodePanel() {
+  if (!els.phoneCodeAccount) return;
+  const row = selectedSingleQueueRow();
+  if (!row) {
+    els.phoneCodeAccount.textContent = "未选中队列账号";
+    els.phoneCodeCurrent.textContent = "手机验证码：-";
+    if (els.manualPhoneCode) els.manualPhoneCode.value = "";
+    return;
+  }
+  const entry = phoneEntryForRow(row);
+  const code = phoneCodeForRow(row, entry);
+  const phone = entry?.phone || row.phone_number || "未绑定手机";
+  els.phoneCodeAccount.textContent = row.email || row.name || "当前账号";
+  els.phoneCodeCurrent.textContent = code ? `手机 ${phone} · 验证码：${code}` : `手机 ${phone} · 验证码：-`;
+  if (els.manualPhoneCode && document.activeElement !== els.manualPhoneCode) {
+    els.manualPhoneCode.value = row.manual_phone_code || "";
+  }
 }
 
 function validPhoneApiUrl(value) {
@@ -1024,7 +1122,8 @@ function addOrUpdatePhoneEntry() {
     return;
   }
   const selected = selectedSingleQueueRow();
-  const accountEmail = selected ? accountEmailKey(selected.email || selected.name) : "";
+  const isOneToOne = currentPhoneMode() !== "batch";
+  const accountEmail = isOneToOne && selected ? accountEmailKey(selected.email || selected.name) : "";
   const id = `phone:${phone.toLowerCase()}`;
   const existing = state.phonePool.find((item) => item.id === id || item.phone === phone);
   if (accountEmail) {
@@ -1037,6 +1136,7 @@ function addOrUpdatePhoneEntry() {
   const next = {
     ...(existing || {}),
     id,
+    mode: accountEmail ? "bound" : "batch",
     phone,
     api_url: apiUrl,
     account_email: accountEmail || existing?.account_email || "",
@@ -1055,6 +1155,53 @@ function addOrUpdatePhoneEntry() {
   toast(accountEmail ? "手机号已加入并绑定选中账号" : "手机号已加入手机池");
 }
 
+function importPhoneBatchEntries() {
+  const text = els.phoneBatchText ? els.phoneBatchText.value.trim() : "";
+  if (!text) {
+    toast("请先粘贴批量手机号");
+    return;
+  }
+  let added = 0;
+  let updated = 0;
+  const errors = [];
+  text.split(/\r?\n/).forEach((line, index) => {
+    const raw = line.trim();
+    if (!raw) return;
+    const parts = raw.split(/----|\t|,/).map((part) => part.trim()).filter(Boolean);
+    const [phone, apiUrl, email = ""] = parts;
+    if (!phone || !apiUrl || !validPhoneApiUrl(apiUrl)) {
+      errors.push(index + 1);
+      return;
+    }
+    const id = `phone:${phone.toLowerCase()}`;
+    const existing = state.phonePool.find((item) => item.id === id || item.phone === phone);
+    const next = {
+      ...(existing || {}),
+      id,
+      mode: email ? "bound" : "batch",
+      phone,
+      api_url: apiUrl,
+      account_email: accountEmailKey(email),
+      status: existing?.status || "idle",
+      last_code: existing?.last_code || "",
+      last_message: existing?.last_message || "",
+      last_checked_at: existing?.last_checked_at || "",
+    };
+    if (existing) {
+      Object.assign(existing, next);
+      updated += 1;
+    } else {
+      state.phonePool.push(next);
+      added += 1;
+    }
+  });
+  savePhonePool();
+  if (els.phoneBatchText && !errors.length) els.phoneBatchText.value = "";
+  renderAll();
+  toast(`手机池导入：新增 ${added}，更新 ${updated}${errors.length ? `，失败 ${errors.length}` : ""}`);
+  if (errors.length) addLog(`手机池批量导入有 ${errors.length} 行格式错误`, "warning", { error_code: "phone_pool_api_invalid" });
+}
+
 function bindPhoneToSelected(phoneId) {
   const item = state.phonePool.find((entry) => entry.id === phoneId);
   const row = selectedSingleQueueRow();
@@ -1069,6 +1216,7 @@ function bindPhoneToSelected(phoneId) {
       entry.account_email = "";
     }
   });
+  item.mode = "bound";
   item.account_email = accountEmail;
   row.phone_id = item.id;
   row.phone_number = item.phone;
@@ -1094,9 +1242,12 @@ function removePhoneEntry(phoneId) {
   renderAll();
 }
 
-async function pollPhoneEntry(phoneId) {
+async function pollPhoneEntry(phoneId, rowId = "") {
   const item = state.phonePool.find((entry) => entry.id === phoneId);
   if (!item) return;
+  const targetRow = state.queue.find((row) => row.id === rowId) || state.queue.find((row) => {
+    return row.phone_id === item.id || accountEmailKey(row.email || row.name) === accountEmailKey(item.account_email);
+  });
   item.status = "running";
   savePhonePool();
   renderPhonePool();
@@ -1107,7 +1258,7 @@ async function pollPhoneEntry(phoneId) {
       body: JSON.stringify({
         phone: item.phone,
         api_url: item.api_url,
-        account_email: item.account_email,
+        account_email: targetRow?.email || item.account_email,
         since: item.last_checked_at || "",
       }),
     });
@@ -1116,8 +1267,19 @@ async function pollPhoneEntry(phoneId) {
     item.last_message = data.message || "";
     item.status = data.found ? "found" : "idle";
     if (data.code) item.last_code = String(data.code);
+    if (targetRow) {
+      targetRow.phone_id = item.id;
+      targetRow.phone_number = item.phone;
+      targetRow.phone_api_url = item.api_url;
+      targetRow.phone_code = data.code ? String(data.code) : targetRow.phone_code || "";
+      targetRow.phone_code_message = data.message || "";
+      targetRow.phone_code_checked_at = data.checked_at || new Date().toISOString();
+      if (!item.account_email && currentPhoneMode() !== "batch") item.account_email = accountEmailKey(targetRow.email || targetRow.name);
+    }
     savePhonePool();
+    saveQueue();
     renderPhonePool();
+    renderQueue();
     if (data.found) {
       addLog(`${item.account_email || item.phone} 手机验证码：${data.code}`, "success", { step: "phone_code", email: item.account_email });
       toast(`收到手机验证码 ${data.code}`);
@@ -1134,6 +1296,47 @@ async function pollPhoneEntry(phoneId) {
     renderPhonePool();
     addLog(formatJobError(details), "error", { error_code: details.error_code || "phone_code_fetch_failed", email: item.account_email });
   }
+}
+
+function saveManualPhoneCodeForSelected() {
+  const row = selectedSingleQueueRow();
+  const code = els.manualPhoneCode ? els.manualPhoneCode.value.trim() : "";
+  if (!row) {
+    toast("请先只选中一个队列账号");
+    return;
+  }
+  if (!/^\d{4,8}$/.test(code)) {
+    toast("请输入 4-8 位手机验证码");
+    return;
+  }
+  const entry = phoneEntryForRow(row);
+  row.manual_phone_code = code;
+  row.phone_code = code;
+  row.phone_code_checked_at = new Date().toISOString();
+  if (entry) {
+    entry.last_code = code;
+    entry.last_checked_at = row.phone_code_checked_at;
+    entry.status = "found";
+  }
+  saveQueue();
+  savePhonePool();
+  renderAll();
+  addLog(`${row.email} 已保存手机验证码：${code}`, "success", { step: "phone_code", email: row.email });
+}
+
+async function pollSelectedPhoneCode() {
+  const row = selectedSingleQueueRow();
+  if (!row) {
+    toast("请先只选中一个队列账号");
+    return;
+  }
+  const entry = ensurePhoneEntryForRow(row);
+  if (!entry) {
+    toast("没有可用手机。请先添加 1 对 1 手机或批量池手机号");
+    addLog(`${row.email} 没有可用手机`, "warning", { error_code: "phone_pool_empty", email: row.email });
+    return;
+  }
+  await pollPhoneEntry(entry.id, row.id);
 }
 
 function definitiveFailedRows() {
@@ -1295,7 +1498,7 @@ function loginPayload(row) {
   const sameEmail = state.accounts.filter((item) => String(item.email || "").toLowerCase() === String(email || "").toLowerCase());
   const isCpa = row.source_kind === "cpa";
   const mode = els.taskMode ? els.taskMode.value : "login";
-  const phoneEntry = phoneEntryForRow(row);
+  const phoneEntry = ensurePhoneEntryForRow(row);
   
   let base_url = isCpa ? row.cpa_base_url || "" : "";
   let management_key = isCpa ? row.cpa_management_key || "" : "";
@@ -1326,6 +1529,10 @@ function loginPayload(row) {
     phone_number: phoneEntry?.phone || row.phone_number || "",
     phone_api_url: phoneEntry?.api_url || row.phone_api_url || "",
     phone_binding_id: phoneEntry?.id || row.phone_id || "",
+    manual_email_code: row.manual_email_code || "",
+    email_code: row.manual_email_code || "",
+    phone_code: phoneCodeForRow(row, phoneEntry),
+    manual_phone_code: row.manual_phone_code || "",
     row: {
       ...row,
       name: row.cpa_name || row.name || email,
@@ -1349,6 +1556,43 @@ function loginPayload(row) {
         site_password: item.site_password,
       })),
   };
+}
+
+function queueManualEmailCodeSubmit(row) {
+  const code = String(row.manual_email_code || "").trim();
+  const jobId = row.jobId || rowState(row).jobId || "";
+  if (!jobId || !/^\d{4,8}$/.test(code)) return;
+  if (state.manualCodeTimers.has(row.id)) {
+    clearTimeout(state.manualCodeTimers.get(row.id));
+  }
+  state.manualCodeTimers.set(row.id, setTimeout(() => {
+    state.manualCodeTimers.delete(row.id);
+    submitManualEmailCode(row, code).catch((error) => {
+      addLog(`${row.email} 手动邮箱验证码保存失败`, "warning", {
+        email: row.email,
+        error_code: "manual_email_code_failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, 350));
+}
+
+async function submitManualEmailCode(row, code) {
+  const jobId = row.jobId || rowState(row).jobId || "";
+  if (!jobId) return;
+  const response = await fetch("/client-api/cpa/login-manual-code", {
+    method: "POST",
+    headers: apiHeaders(),
+    body: JSON.stringify({
+      job_id: jobId,
+      manual_email_code: code,
+    }),
+  });
+  const data = await readJsonResponse(response, "手动邮箱验证码保存失败");
+  if (!data.success) {
+    const details = parseErrorPayload(data, "手动邮箱验证码保存失败");
+    throw new Error(details.error || "手动邮箱验证码保存失败");
+  }
 }
 
 function addLog(message, type = "info", meta = {}) {
@@ -1645,6 +1889,7 @@ async function startLogin(row) {
       row.status = data.job?.status || "queued";
       state.jobs.set(row.id, { status: row.status, jobId: row.jobId, error: "", logs: [] });
       saveQueue();
+      queueManualEmailCodeSubmit(row);
       if (row.jobId) {
         await waitForJob(row, row.jobId);
       }
@@ -2122,6 +2367,17 @@ els.queueBody.addEventListener("change", (event) => {
   if (input.checked) state.selectedQueue.add(row.dataset.id);
   else state.selectedQueue.delete(row.dataset.id);
   renderQueue();
+  renderSelectedPhoneCodePanel();
+});
+els.queueBody.addEventListener("input", (event) => {
+  const input = event.target.closest(".queue-email-code");
+  if (!input) return;
+  const rowEl = input.closest("tr");
+  const item = state.queue.find((row) => row.id === rowEl?.dataset.id);
+  if (!item) return;
+  item.manual_email_code = input.value.trim();
+  saveQueue();
+  queueManualEmailCodeSubmit(item);
 });
 if (els.queueSelectAll) {
   els.queueSelectAll.addEventListener("change", () => {
@@ -2156,6 +2412,22 @@ if (els.importPickupCredentials) {
 if (els.addPhoneEntry) {
   els.addPhoneEntry.addEventListener("click", addOrUpdatePhoneEntry);
 }
+if (els.importPhoneBatch) {
+  els.importPhoneBatch.addEventListener("click", importPhoneBatchEntries);
+}
+if (els.saveManualPhoneCode) {
+  els.saveManualPhoneCode.addEventListener("click", saveManualPhoneCodeForSelected);
+}
+if (els.pollSelectedPhone) {
+  els.pollSelectedPhone.addEventListener("click", pollSelectedPhoneCode);
+}
+[els.phoneModeBatch, els.phoneModeOneToOne].forEach((input) => {
+  if (!input) return;
+  input.addEventListener("change", () => {
+    saveSettings();
+    renderPhonePool();
+  });
+});
 if (els.phonePoolList) {
   els.phonePoolList.addEventListener("click", (event) => {
     const row = event.target.closest(".phone-pool-row");

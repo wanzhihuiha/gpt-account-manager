@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GPT账号管理助手 - 凭证刷新</title>
-  <link rel="stylesheet" href="/styles.css?v=20260531-accordion-sync">
+  <link rel="stylesheet" href="/styles.css?v=20260531-manual-email-code-live">
   <link rel="stylesheet" href="/forge-theme.css?v=20260531-open-source-links">
   <script src="/nav-links.js?v=20260531-docker-dns-links" defer></script>
 </head>
@@ -184,7 +184,7 @@
               <summary>
                 <span>
                   <strong>长效手机池</strong>
-                  <em>手机号绑定单个账号，需要手机验证时取码</em>
+                  <em>支持批量池与 1 对 1 绑定，收到手机码后可手动填入</em>
                 </span>
                 <b>接码</b>
               </summary>
@@ -193,10 +193,27 @@
                   <strong>手机号 + 接码 API</strong>
                   <span>API 可用 {phone}、{email} 占位。</span>
                 </div>
+                <div class="phone-mode-tabs" role="tablist" aria-label="手机池模式">
+                  <label><input id="phoneModeBatch" name="phonePoolMode" type="radio" value="batch"><span>批量池</span></label>
+                  <label><input id="phoneModeOneToOne" name="phonePoolMode" type="radio" value="one_to_one" checked><span>1 对 1 绑定</span></label>
+                </div>
                 <div class="phone-pool-form">
                   <input id="phoneNumber" placeholder="手机号，例如 +12025550123">
                   <input id="phoneApiUrl" placeholder="接码 API URL，例如 https://api.example.com/sms?phone={phone}">
                   <button id="addPhoneEntry" type="button">加入/更新</button>
+                </div>
+                <div class="phone-batch-panel" id="phoneBatchPanel" hidden>
+                  <textarea id="phoneBatchText" rows="3" spellcheck="false" placeholder="批量导入：手机号----接码 API----绑定邮箱(可选)，每行一个"></textarea>
+                  <button id="importPhoneBatch" type="button">导入批量池</button>
+                </div>
+                <div class="phone-code-panel">
+                  <div>
+                    <strong id="phoneCodeAccount">未选中队列账号</strong>
+                    <span id="phoneCodeCurrent">手机验证码：-</span>
+                  </div>
+                  <input id="manualPhoneCode" inputmode="numeric" autocomplete="one-time-code" placeholder="手动输入收到的验证码">
+                  <button id="saveManualPhoneCode" type="button">保存验证码</button>
+                  <button id="pollSelectedPhone" type="button">为选中账号取码</button>
                 </div>
                 <div id="phonePoolList" class="phone-pool-list">
                   <div class="phone-pool-empty">还没有长效手机。</div>
@@ -224,7 +241,7 @@
                   <th>来源</th>
                   <th>状态</th>
                   <th>错误</th>
-                  <th>操作</th>
+                  <th>验证码 / 操作</th>
                 </tr>
               </thead>
               <tbody id="queueBody">
@@ -249,6 +266,6 @@
     </main>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/refresh.js?v=20260531-accordion-sync" defer></script>
+  <script src="/refresh.js?v=20260531-manual-email-code-live" defer></script>
 </body>
 </html>

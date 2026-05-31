@@ -1860,7 +1860,6 @@
 
         function renderRows(rows) {
           state.rows = Array.isArray(rows) ? rows : [];
-          state.rows.forEach((row) => state.selectedRows.add(rowKey(row)));
           for (const selected of [...state.selectedRows]) {
             if (!state.rows.some((row) => rowKey(row) === selected)) {
               state.selectedRows.delete(selected);
