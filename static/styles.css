@@ -1289,14 +1289,36 @@ button:disabled {
   font-size: 11px;
 }
 
-.refresh-console .login-stats .plan-type-stat {
-  min-width: 280px;
-  flex: 1 1 280px;
+.refresh-console .login-stats .plan-summary-stat,
+.login-stats .plan-summary-stat {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: start;
+  gap: 2px 7px;
+  min-width: 300px;
+  flex: 1 1 330px;
+  border-radius: 10px;
+  white-space: normal;
 }
 
-.refresh-console .login-stats .plan-type-stat strong {
+.refresh-console .login-stats .plan-summary-stat strong,
+.login-stats .plan-summary-stat strong {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.refresh-console .login-stats .plan-summary-stat small,
+.login-stats .plan-summary-stat small {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  color: #60708a;
   font-family: "Cascadia Mono", "Consolas", monospace;
   font-size: 11px;
+  font-weight: 850;
+  line-height: 1.25;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1428,7 +1450,8 @@ button:disabled {
   grid-template-columns: 16px minmax(0, 1fr) 24px;
   align-items: center;
   gap: 4px;
-  padding: 6px 7px;
+  min-height: 32px;
+  padding: 4px 7px;
   border: 1px solid rgba(209, 224, 244, 0.78);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.62);
@@ -1485,6 +1508,7 @@ button:disabled {
 }
 
 .mailbox-row-main span {
+  width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -1522,11 +1546,13 @@ button:disabled {
 }
 
 .mailbox-meta-inline {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 82px;
 }
 
 .mailbox-meta-inline em {
-  max-width: 112px;
+  max-width: 82px;
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(117, 132, 151, 0.1);
@@ -2039,8 +2065,29 @@ button:disabled {
   justify-content: flex-end;
   flex: 1 1 auto;
   min-width: 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.mail-list-panel .section-head {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mail-list-panel .section-head h2 {
+  flex: 0 0 auto;
+}
+
+.mail-list-panel .pager-tools {
+  flex: 1 1 220px;
+}
+
+.pager-tools .ghost.danger {
+  width: auto;
+  min-width: 56px;
+  padding: 0 8px;
 }
 
 .detail-actions {
@@ -2821,8 +2868,11 @@ body.modal-open {
 
 .mailbox-manager-nav {
   display: grid;
-  grid-template-rows: auto repeat(3, auto) 1fr;
+  grid-template-rows: auto repeat(5, auto) minmax(0, 1fr);
   gap: 8px;
+  align-content: start;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 10px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(239, 247, 255, 0.84));
   color: var(--ink);

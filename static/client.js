@@ -1081,6 +1081,11 @@ function mailTypeLabel(message) {
   return TYPE_LABELS[message?.mail_type] || message?.mail_type_label || "其他";
 }
 
+function selectedMailTypeLabel() {
+  const value = els.typeFilter?.value || "all";
+  return value === "all" ? "" : (TYPE_LABELS[value] || value);
+}
+
 function markAccountBanned(email) {
   const normalizedEmail = String(email || "").toLowerCase();
   if (!normalizedEmail) return false;
@@ -1184,7 +1189,6 @@ function renderAccounts() {
   els.mailboxList.className = "mailbox-list";
   els.mailboxList.innerHTML = pageAccounts.map((account) => {
     const stateClass = statusClass(account.last_status);
-    const sourceClass = account.source === "temp" ? "temp" : "ms";
     const sourceText = account.source === "temp" ? "临时" : "Outlook";
     const category = account.category || EMPTY_CATEGORY_LABEL;
     const title = [
@@ -1200,10 +1204,7 @@ function renderAccounts() {
       <button class="mailbox-row-main" type="button" title="${escapeHtml(title)}">
         <span>
           <strong>${escapeHtml(account.email)}</strong>
-          <small class="mailbox-meta mailbox-meta-inline">
-            <b class="source-badge ${sourceClass}">${sourceText}</b>
-            <em>${escapeHtml(category)}</em>
-          </small>
+          <small class="mailbox-meta mailbox-meta-inline"><em>${escapeHtml(category)}</em></small>
         </span>
       </button>
       <button class="icon danger" type="button" aria-label="删除">×</button>
@@ -1335,8 +1336,9 @@ function renderMessages() {
   els.prevPage.disabled = state.page <= 1;
   els.nextPage.disabled = state.page >= pages;
   if (els.deleteFilteredBtn) {
+    const typeLabel = selectedMailTypeLabel();
     els.deleteFilteredBtn.disabled = !total;
-    els.deleteFilteredBtn.textContent = total ? `删除 ${total}` : "批量删除";
+    els.deleteFilteredBtn.textContent = total ? `删除${typeLabel || "邮件"} ${total}` : "批量删除";
   }
 
   if (!pageItems.length) {
@@ -1529,7 +1531,11 @@ async function deleteFilteredMessages() {
   const total = Number(state.messageTotal || 0);
   if (!total) return;
   const selectedAccounts = state.accounts.filter((account) => state.selected.has(account.id));
-  const scope = selectedAccounts.length ? `当前筛选/选中范围的 ${total} 封邮件` : `当前筛选结果的 ${total} 封邮件`;
+  const typeLabel = selectedMailTypeLabel();
+  const typeScope = typeLabel ? `${typeLabel}类型的 ` : "";
+  const scope = selectedAccounts.length
+    ? `当前筛选/选中范围内 ${typeScope}${total} 封邮件`
+    : `当前筛选结果内 ${typeScope}${total} 封邮件`;
   if (!confirm(`确认删除${scope}？只删除本工具本地缓存，不会删除远端真实邮箱；后续刷新也不会再显示这些邮件。`)) return;
   const filter = Object.fromEntries(messageQueryParams().entries());
   try {
@@ -2110,7 +2116,7 @@ function renderLoginTable() {
   els.loginSuccess.textContent = String(counts.success || 0);
   els.loginFailed.textContent = String(counts.failed || 0);
   if (els.loginPlanTypes) {
-    els.loginPlanTypes.textContent = `FREE ${planCounts.FREE} / PLUS ${planCounts.PLUS} / TEAM ${planCounts.TEAM} / PROX5 ${planCounts.PROX5} / PROX20 ${planCounts.PROX20}`;
+    els.loginPlanTypes.textContent = `FREE ${planCounts.FREE} · PLUS ${planCounts.PLUS} · TEAM ${planCounts.TEAM} · PROX5 ${planCounts.PROX5} · PROX20 ${planCounts.PROX20}`;
   }
   if (!rows.length) {
     els.loginTableBody.innerHTML = '<tr><td colspan="6" class="empty-cell">先扫描 CPA 异常，或加入左侧选中的邮箱。</td></tr>';

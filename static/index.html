@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GPT账号管理助手</title>
-  <link rel="stylesheet" href="/styles.css?v=20260601-mailbox-plan-stats">
+  <link rel="stylesheet" href="/styles.css?v=20260601-scan-type-mail-cleanup">
   <link rel="stylesheet" href="/forge-theme.css?v=20260531-open-source-links">
   <script src="/nav-links.js?v=20260531-docker-dns-links" defer></script>
-  <script src="/i18n.js?v=20260601-mailbox-plan-stats" defer></script>
+  <script src="/i18n.js?v=20260601-scan-type-mail-cleanup" defer></script>
 </head>
 <body>
   <div class="shell">
@@ -166,12 +166,11 @@
             </div>
           </div>
           <div class="login-stats">
-            <span>异常 <strong id="loginTotal">0</strong></span>
+            <span class="plan-summary-stat">本次巡检账号 <strong id="loginTotal">0</strong><small id="loginPlanTypes">FREE 0 · PLUS 0 · TEAM 0 · PROX5 0 · PROX20 0</small></span>
             <span>等待 <strong id="loginIdle">0</strong></span>
             <span>刷新中 <strong id="loginRunning">0</strong></span>
             <span>成功 <strong id="loginSuccess">0</strong></span>
             <span>失败 <strong id="loginFailed">0</strong></span>
-            <span class="plan-type-stat">类型 <strong id="loginPlanTypes">FREE 0 / PLUS 0 / TEAM 0 / PROX5 0 / PROX20 0</strong></span>
           </div>
           <div class="login-table-wrap">
             <table class="login-table">
@@ -207,6 +206,17 @@
             <div class="section-head">
               <h2>邮件列表</h2>
               <div class="pager-tools">
+                <select id="typeFilter" aria-label="邮件类型">
+                  <option value="all">全部类型</option>
+                  <option value="verification">验证码</option>
+                  <option value="invite">邀请</option>
+                  <option value="security">安全</option>
+                  <option value="reset">重置</option>
+                  <option value="billing">账单</option>
+                  <option value="newsletter">通知</option>
+                  <option value="banned">封禁</option>
+                  <option value="other">其他</option>
+                </select>
                 <select id="pageSize">
                   <option value="10">10 / 页</option>
                   <option value="20" selected>20 / 页</option>
@@ -299,7 +309,7 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/client.js?v=20260601-mailbox-plan-stats" defer></script>
+  <script src="/client.js?v=20260601-scan-type-mail-cleanup" defer></script>
 </body>
 </html>
 
