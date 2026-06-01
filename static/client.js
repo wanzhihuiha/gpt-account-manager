@@ -1202,10 +1202,8 @@ function renderAccounts() {
     <div class="mailbox-row refresh-state-${escapeHtml(stateClass)}${state.activeMailboxId === account.id ? " active" : ""}" data-id="${escapeHtml(account.id)}">
       <input class="mailbox-check" type="checkbox" ${state.selected.has(account.id) ? "checked" : ""} title="${escapeHtml(title)}">
       <button class="mailbox-row-main" type="button" title="${escapeHtml(title)}">
-        <span>
-          <strong>${escapeHtml(account.email)}</strong>
-          <small class="mailbox-meta mailbox-meta-inline"><em>${escapeHtml(category)}</em></small>
-        </span>
+        <strong>${escapeHtml(account.email)}</strong>
+        <em>${escapeHtml(category)}</em>
       </button>
       <button class="icon danger" type="button" aria-label="删除">×</button>
     </div>

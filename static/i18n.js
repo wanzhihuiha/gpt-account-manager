@@ -6,6 +6,8 @@
   const ATTRS = ["placeholder", "aria-label", "title", "value"];
   const originals = new WeakMap();
   const lastApplied = new WeakMap();
+  let memoryLang = DEFAULT_LANG;
+  let storageWriteFailed = false;
 
   const en = {
     "GPT账号管理助手": "GPT Account Manager",
@@ -279,11 +281,29 @@
   };
 
   function getLanguage() {
-    return localStorage.getItem(STORAGE_KEY) === TARGET_LANG ? TARGET_LANG : DEFAULT_LANG;
+    if (storageWriteFailed) {
+      return memoryLang === TARGET_LANG ? TARGET_LANG : DEFAULT_LANG;
+    }
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored === TARGET_LANG || stored === DEFAULT_LANG) {
+        memoryLang = stored;
+      }
+    } catch {
+      // Keep language switching usable even if browser storage is full or blocked.
+    }
+    return memoryLang === TARGET_LANG ? TARGET_LANG : DEFAULT_LANG;
   }
 
   function setLanguage(lang) {
-    localStorage.setItem(STORAGE_KEY, lang === TARGET_LANG ? TARGET_LANG : DEFAULT_LANG);
+    memoryLang = lang === TARGET_LANG ? TARGET_LANG : DEFAULT_LANG;
+    try {
+      localStorage.setItem(STORAGE_KEY, memoryLang);
+      storageWriteFailed = false;
+    } catch {
+      storageWriteFailed = true;
+      // In-memory fallback is enough for the current page session.
+    }
     applyI18n(document);
   }
 
@@ -414,9 +434,12 @@
         button.classList.add("login-language-switch");
         document.body.appendChild(button);
       }
+    }
+    if (!button.dataset.i18nBound) {
       button.addEventListener("click", () => {
         setLanguage(getLanguage() === TARGET_LANG ? DEFAULT_LANG : TARGET_LANG);
       });
+      button.dataset.i18nBound = "true";
     }
     const lang = getLanguage();
     const isEnglish = lang === TARGET_LANG;

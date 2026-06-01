@@ -909,10 +909,10 @@ function renderSources() {
   els.sourceList.innerHTML = pageItems.map((account) => {
     const refreshState = sourceRefreshState(account);
     return `
-      <div class="mailbox-row refresh-state-${escapeHtml(refreshState.tone)}" data-id="${escapeHtml(account.id)}" title="${escapeHtml(refreshState.message)}">
-        <label class="mailbox-check">
+      <div class="mailbox-row refresh-source-row refresh-state-${escapeHtml(refreshState.tone)}" data-id="${escapeHtml(account.id)}" title="${escapeHtml(refreshState.message)}">
+        <label class="refresh-source-check">
           <input type="checkbox" ${state.selectedAccounts.has(account.id) ? "checked" : ""}>
-          <span>
+          <span class="refresh-source-main">
             <strong>${escapeHtml(account.email)}</strong>
             <em><b class="source-badge ${escapeHtml(sourceTone(account))}">${escapeHtml(sourceLabel(account))}</b></em>
           </span>
