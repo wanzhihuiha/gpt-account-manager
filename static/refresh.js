@@ -512,6 +512,16 @@ function compactLogMessage(message, meta = {}) {
       const ip = String(message || "").match(/ip=([0-9a-fA-F:.]+)/)?.[1] || "";
       return `${email ? `${email} ` : ""}${LOG_STEP_LABELS[step]}${ip ? `：${ip}` : ""}`;
     }
+    if (step === "mail_code_poll" || step === "mail_code_missing") {
+      const detail = compactText(
+        String(message || "")
+          .replace(/^邮箱验证码查收结束，仍未找到可提交的 6 位验证码：?/, "")
+          .replace(/^邮箱验证码查收：?/, "")
+          .replace(/^查收邮箱：?/, ""),
+        140,
+      );
+      return `${email ? `${email} ` : ""}${LOG_STEP_LABELS[step]}${detail ? `：${detail}` : ""}`;
+    }
     return `${email ? `${email} ` : ""}${LOG_STEP_LABELS[step]}`;
   }
   if (step) {

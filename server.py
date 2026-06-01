@@ -72,7 +72,7 @@ LOGIN_HISTORY_FILE = DATA_DIR / "login_history.json"
 LOGIN_DEBUG_DIR = DATA_DIR / "login_debug"
 UPGRADE_REQUEST_FILE = DATA_DIR / "upgrade_request.json"
 UPGRADE_RESULT_FILE = DATA_DIR / "upgrade_result.json"
-APP_VERSION = "20260601-mailbox-i18n-fix"
+APP_VERSION = "20260601-mail-code-cache-debug"
 
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
@@ -1759,9 +1759,10 @@ def normalize_message(**kwargs: Any) -> dict[str, Any]:
     subject = coerce_text(kwargs.get("subject"))
     body_text = strip_html(coerce_text(kwargs.get("body")))
     html_body = sanitize_email_html(coerce_text(kwargs.get("html_body")))
+    html_text = strip_html(html_body)
     if not body_text and html_body:
-        body_text = strip_html(html_body)
-    text = strip_html(f"{subject}\n{body_text}")
+        body_text = html_text
+    text = strip_html(f"{subject}\n{body_text}\n{html_text}")
     links = extract_links(text)
     codes = extract_codes(text)
     mail_type = classify_mail(
@@ -6261,18 +6262,55 @@ def set_login_manual_email_code(payload: dict[str, Any], workspace_id: str = "pu
     return {"success": True, "job_id": job_id}
 
 
-def find_latest_code(messages: list[dict[str, Any]], *, after_ts: float = 0) -> str:
+def combined_messages(*message_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cache: dict[str, dict[str, Any]] = {}
+    for messages in message_groups:
+        for message in messages:
+            if isinstance(message, dict):
+                cache[message_key(message)] = message
+    return sorted(cache.values(), key=message_sort_value, reverse=True)
+
+
+def cached_login_messages(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    workspace = normalize_workspace_id(payload.get("_workspace_id"))
+    email_addr = coerce_text(payload.get("email")).strip()
+    if "@" not in email_addr:
+        return []
+    return filter_messages(
+        load_messages(workspace_file(workspace, "messages.json")),
+        {
+            "source": "all",
+            "account": email_addr,
+        },
+    )[:80]
+
+
+def message_six_digit_codes(message: dict[str, Any]) -> list[str]:
+    raw_codes = [coerce_text(code) for code in message.get("codes") or []]
+    if not raw_codes:
+        raw_codes = extract_codes("\n".join([
+            coerce_text(message.get("subject")),
+            coerce_text(message.get("preview")),
+            coerce_text(message.get("body")),
+            strip_html(coerce_text(message.get("html_body"))),
+        ]))
+    return [code for code in raw_codes if re.fullmatch(r"\d{6}", code)]
+
+
+def count_six_digit_codes(messages: list[dict[str, Any]]) -> int:
+    return sum(len(message_six_digit_codes(message)) for message in messages)
+
+
+def find_latest_code(messages: list[dict[str, Any]], *, after_ts: float = 0, skew_seconds: int = 120) -> str:
     sorted_messages = sorted(messages, key=message_sort_value, reverse=True)
     for message in sorted_messages:
         received_at = coerce_text(message.get("received_at"))
         if after_ts and received_at:
             parsed = parse_message_datetime(received_at)
-            if parsed and parsed.timestamp() + 10 < after_ts:
+            if parsed and parsed.timestamp() + max(0, skew_seconds) < after_ts:
                 continue
-        for code in message.get("codes") or []:
-            clean = coerce_text(code)
-            if re.fullmatch(r"\d{6}", clean):
-                return clean
+        for code in message_six_digit_codes(message):
+            return code
     return ""
 
 
@@ -6296,27 +6334,24 @@ def fetch_login_verification_code(payload: dict[str, Any], *, since: float = 0, 
             "accounts": payload.get("accounts", []),
             "temp_addresses": payload.get("temp_addresses", []),
         })
-        results = data.get("results", []) if isinstance(data.get("results"), list) else []
+        live_messages = data.get("messages", []) if isinstance(data.get("messages"), list) else []
+        cache_messages = cached_login_messages(payload)
+        all_messages = combined_messages(live_messages, cache_messages)
         errors = data.get("errors", []) if isinstance(data.get("errors"), list) else []
-        message_count = len(data.get("messages", []) if isinstance(data.get("messages"), list) else [])
-        result_parts = []
-        for result in results:
-            if not isinstance(result, dict):
-                continue
-            result_parts.append(
-                f"{result.get('email') or '-'}:{'ok' if result.get('ok') else 'error'}/{len(result.get('messages') or [])}"
-            )
-        latest = (data.get("messages") or [{}])[0] if data.get("messages") else {}
+        latest = all_messages[0] if all_messages else {}
         latest_subject = coerce_text(latest.get("subject"))[:80] if isinstance(latest, dict) else ""
-        latest_codes = latest.get("codes") if isinstance(latest, dict) else []
+        latest_at = coerce_text(latest.get("received_at") or latest.get("cached_at"))[:32] if isinstance(latest, dict) else ""
+        code_count = count_six_digit_codes(all_messages)
+        error_summary = "; ".join(coerce_text(error)[:80] for error in errors[:2])
         last_summary = (
-            f"attempt {attempt}/{total_attempts}, sources={'; '.join(result_parts) or 'none'}, "
-            f"messages={message_count}, latest={latest_subject or '-'}, codes={len(latest_codes or [])}, "
-            f"errors={'; '.join(coerce_text(error)[:120] for error in errors[:2]) or '-'}"
+            f"第 {attempt}/{total_attempts} 次，实时 {len(live_messages)} 封，缓存 {len(cache_messages)} 封，"
+            f"识别码 {code_count} 个，最新 {latest_subject or '-'}"
+            f"{f'（{latest_at}）' if latest_at else ''}"
+            f"{f'，错误：{error_summary}' if error_summary else ''}"
         )
         if job_id and (attempt == 1 or attempt == total_attempts or attempt % 4 == 0 or errors):
-            append_login_log(job_id, f"邮箱验证码查收：{last_summary}", "info" if message_count else "warning", "mail_code_poll")
-        code = find_latest_code(data.get("messages", []), after_ts=since)
+            append_login_log(job_id, f"查收邮箱：{last_summary}", "info" if all_messages else "warning", "mail_code_poll")
+        code = find_latest_code(all_messages, after_ts=since)
         if code:
             if job_id:
                 append_login_log(job_id, "已从邮箱取到 6 位验证码", "success", "mail_code_poll")
