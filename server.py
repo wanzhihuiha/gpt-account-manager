@@ -72,7 +72,7 @@ LOGIN_HISTORY_FILE = DATA_DIR / "login_history.json"
 LOGIN_DEBUG_DIR = DATA_DIR / "login_debug"
 UPGRADE_REQUEST_FILE = DATA_DIR / "upgrade_request.json"
 UPGRADE_RESULT_FILE = DATA_DIR / "upgrade_result.json"
-APP_VERSION = "20260602-refresh-queue-only-delete"
+APP_VERSION = "20260602-mailbox-extra-fields-safe"
 
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
@@ -433,11 +433,13 @@ def load_accounts(path: Path = ACCOUNTS_FILE) -> dict[str, MailAccount]:
     if not isinstance(rows, list):
         return {}
     accounts: dict[str, MailAccount] = {}
+    allowed = set(MailAccount.__dataclass_fields__.keys())
     for item in rows:
         if not isinstance(item, dict):
             continue
         try:
-            account = MailAccount(**item)
+            clean = {key: item.get(key) for key in allowed if key in item}
+            account = MailAccount(**clean)
             accounts[account.email.lower()] = account
         except TypeError:
             continue
@@ -467,13 +469,15 @@ def load_temp_addresses(path: Path = TEMP_ADDRESSES_FILE) -> dict[str, TempAddre
     if not isinstance(rows, list):
         return {}
     addresses: dict[str, TempAddress] = {}
+    allowed = set(TempAddress.__dataclass_fields__.keys())
     for item in rows:
         if not isinstance(item, dict):
             continue
         try:
             item = dict(item)
             item["base_url"] = normalize_temp_worker_url(item.get("base_url") or item.get("baseUrl") or TEMP_WORKER_URL)
-            address = TempAddress(**item)
+            clean = {key: item.get(key) for key in allowed if key in item}
+            address = TempAddress(**clean)
             addresses[address.email.lower()] = address
         except TypeError:
             continue
