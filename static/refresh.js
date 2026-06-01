@@ -1159,13 +1159,7 @@ async function removeSelectedSources() {
   }
   const emails = [...new Set(selected.map((account) => accountEmailKey(account.email)).filter(Boolean))];
   if (!emails.length) return;
-  if (!confirm(`从本页移除 ${emails.length} 个邮箱？对应取码资料也会从本工作区删除。`)) return;
-  try {
-    await deleteWorkspaceMailCredentials(emails);
-  } catch (error) {
-    const details = error.details || { error: error.message || "邮箱池删除失败", error_code: "delete_failed" };
-    addLog(formatJobError(details), "warning", { error_code: details.error_code || "delete_failed" });
-  }
+  if (!confirm(`从凭证刷新页移除 ${emails.length} 个邮箱？只移除本页列表和刷新队列，不会删除邮箱管理里的邮箱资料。`)) return;
   const emailSet = new Set(emails);
   state.accounts = state.accounts.filter((account) => !emailSet.has(accountEmailKey(account.email)));
   state.queue = state.queue.filter((row) => !emailSet.has(accountEmailKey(row.email || row.name)));
@@ -1175,8 +1169,8 @@ async function removeSelectedSources() {
   saveJson(STORAGE_KEYS.accounts, state.accounts);
   saveQueue();
   renderAll();
-  toast(`已移除 ${emails.length} 个邮箱`);
-  addLog(`移除邮箱：${emails.length} 个`, "success");
+  toast(`已从本页移除 ${emails.length} 个邮箱`);
+  addLog(`本页移除邮箱：${emails.length} 个，邮箱管理资料未删除`, "success");
 }
 
 function rowState(row) {
@@ -1862,36 +1856,25 @@ async function cleanFailedRows() {
   }, {});
   const summary = Object.entries(counts).map(([code, count]) => `${errorCodeLabel(code)} ${count}`).join("，");
   const selectedHint = state.selectedQueue.size ? "选中的失败账号" : (state.queueFilter === "failed" ? "当前失败列表" : "全部失败账号");
-  if (!confirm(`将清理 ${rows.length} 个${selectedHint}：${summary}\n\n会尝试从 CPA 删除，并从本地邮箱池和刷新队列移除。继续？`)) {
+  if (!confirm(`将清理 ${rows.length} 个${selectedHint}：${summary}\n\n只会从 CPA 和凭证刷新队列移除，不会删除邮箱管理里的邮箱资料。继续？`)) {
     return;
   }
-  const emails = [...new Set(rows.map((row) => accountEmailKey(row.email || row.name)).filter(Boolean))];
   let cpaDeleted = 0;
-  let workspaceDeleted = { microsoft: 0, temp: 0 };
   try {
     cpaDeleted = await deleteCpaRows(rows);
   } catch (error) {
     const details = error.details || { error: error.message || "CPA 删除失败", error_code: "delete_failed" };
     addLog(formatJobError(details), "warning", { error_code: details.error_code || "delete_failed" });
   }
-  try {
-    workspaceDeleted = await deleteWorkspaceMailCredentials(emails);
-  } catch (error) {
-    const details = error.details || { error: error.message || "邮箱池删除失败", error_code: "delete_failed" };
-    addLog(formatJobError(details), "warning", { error_code: details.error_code || "delete_failed" });
-  }
-  const emailSet = new Set(emails);
-  state.accounts = state.accounts.filter((account) => !emailSet.has(accountEmailKey(account.email)));
   const rowIds = new Set(rows.map((row) => row.id));
   state.queue = state.queue.filter((row) => !rowIds.has(row.id));
   rows.forEach((row) => {
     state.jobs.delete(row.id);
     state.selectedQueue.delete(row.id);
   });
-  saveJson(STORAGE_KEYS.accounts, state.accounts);
   saveQueue();
   renderAll();
-  addLog(`清理完成：队列 ${rows.length}，CPA ${cpaDeleted}，邮箱池 Outlook ${workspaceDeleted.microsoft || 0} / 临时 ${workspaceDeleted.temp || 0}`, "success");
+  addLog(`清理完成：队列 ${rows.length}，CPA ${cpaDeleted}，邮箱管理资料未删除`, "success");
   toast(`已清理 ${rows.length} 个失败账号`);
 }
 
