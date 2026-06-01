@@ -72,7 +72,7 @@ LOGIN_HISTORY_FILE = DATA_DIR / "login_history.json"
 LOGIN_DEBUG_DIR = DATA_DIR / "login_debug"
 UPGRADE_REQUEST_FILE = DATA_DIR / "upgrade_request.json"
 UPGRADE_RESULT_FILE = DATA_DIR / "upgrade_result.json"
-APP_VERSION = "20260601-fetch-background"
+APP_VERSION = "20260601-fetch-provider-fallback"
 
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
@@ -2052,13 +2052,22 @@ def mail_fetch_error_result(kind: str, target: MailAccount | TempAddress, messag
     return result
 
 
+def microsoft_provider_sequence(provider: str) -> list[str]:
+    value = (provider or "auto").strip().lower()
+    if value == "graph":
+        return ["graph", "imap", "outlook"]
+    if value == "imap":
+        return ["imap", "graph", "outlook"]
+    return ["imap", "graph", "outlook"]
+
+
 def fetch_for_account(account: MailAccount, provider: str, limit: int, sender_filter: str) -> dict[str, Any]:
     started = time.perf_counter()
     errors: list[str] = []
     messages: list[dict[str, Any]] = []
     checked_at = iso_now()
     used_provider = ""
-    providers = ["imap", "graph", "outlook"] if provider == "auto" else [provider]
+    providers = microsoft_provider_sequence(provider)
     for current in providers:
         try:
             if current == "graph":
@@ -2078,7 +2087,7 @@ def fetch_for_account(account: MailAccount, provider: str, limit: int, sender_fi
             account.last_status = "error"
             account.last_error = str(exc)[:500]
     account.last_check_at = checked_at
-    detail = classify_mail_fetch_error("; ".join(errors), "microsoft") if account.last_status != "ok" else {}
+    detail = classify_mail_fetch_error(errors[0] if errors else "", "microsoft") if account.last_status != "ok" else {}
     result = {
         "source": "microsoft",
         "provider": used_provider or provider,

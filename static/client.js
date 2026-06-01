@@ -2441,7 +2441,7 @@ async function syncMail() {
   const useServerStoredAccounts = shouldUseServerStoredAccounts(payload);
   const provider = normalizeProviderValue(els.providerFilter?.value);
   if (els.providerFilter && provider !== "auto") {
-    addClientLog(`当前选择 ${provider === "graph" ? "Graph" : "IMAP"} 单一路径；如果失败，请切回“微软自动”。`, "warning");
+    addClientLog(`当前优先使用 ${provider === "graph" ? "Graph" : "IMAP"}；失败时会继续尝试其他微软收信通道。`, "info");
   }
   if (payloadHasMaskedCredentials(payload) && !useServerStoredAccounts && !hasUsableLocalCredentialsForPayload(payload)) {
     toast(localCredentialHint());
