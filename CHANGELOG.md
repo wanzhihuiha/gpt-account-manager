@@ -1,5 +1,11 @@
 # 更新记录
 
+## 2026-06-03 dashboard-stats
+
+- 新增工作区风险仪表盘，汇总封禁邮件趋势、今日/近 7 天/周期封禁数量、涉及邮箱、域名排行和最近封禁邮件。
+- 新增 `/client-api/dashboard-stats` 只读接口，基于当前工作区缓存邮件、邮箱资产和刷新结果生成统计，不触发取信或删除。
+- 顶部模块导航新增“仪表盘”入口，并补充中英文切换文案。
+
 ## 2026-06-03 generic-mail-provider
 
 - 新增普通邮箱取信入口，支持 IMAP/POP3 自动推断以及 CloudMail/LuckMail/Inbucket 类 API 取信。

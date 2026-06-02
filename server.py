@@ -30,7 +30,7 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -74,7 +74,7 @@ LOGIN_HISTORY_FILE = DATA_DIR / "login_history.json"
 LOGIN_DEBUG_DIR = DATA_DIR / "login_debug"
 UPGRADE_REQUEST_FILE = DATA_DIR / "upgrade_request.json"
 UPGRADE_RESULT_FILE = DATA_DIR / "upgrade_result.json"
-APP_VERSION = "20260603-generic-mail-provider"
+APP_VERSION = "20260603-dashboard-stats"
 
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
@@ -772,6 +772,177 @@ def message_sort_value(message: dict[str, Any]) -> str:
     value = message.get("received_at") or message.get("cached_at") or ""
     parsed = parse_message_datetime(value)
     return parsed.isoformat() if parsed else str(value)
+
+
+def is_banned_mail_message(message: dict[str, Any]) -> bool:
+    if coerce_text(message.get("mail_type")).lower() == "banned":
+        return True
+    haystack = " ".join(coerce_text(message.get(key)) for key in [
+        "sender", "subject", "preview", "body", "html_body", "mail_type_label",
+    ])
+    return classify_mail(haystack) == "banned"
+
+
+def count_by_value(rows: list[Any], getter: Callable[[Any], str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        key = coerce_text(getter(row)).lower() or "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def sorted_count_rows(counts: dict[str, int], key_name: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    return [
+        {key_name: key, "count": count}
+        for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
+
+
+def dashboard_stats_response(
+    workspace_id: str,
+    *,
+    days: int = 30,
+    limit: int = 300,
+    tz_offset_minutes: int = 480,
+) -> dict[str, Any]:
+    try:
+        days = max(1, min(int(days or 30), 365))
+    except (TypeError, ValueError):
+        days = 30
+    try:
+        limit = max(1, min(int(limit or 300), 1000))
+    except (TypeError, ValueError):
+        limit = 300
+    try:
+        tz_offset_minutes = max(-720, min(int(tz_offset_minutes), 840))
+    except (TypeError, ValueError):
+        tz_offset_minutes = 480
+
+    tz = timezone(timedelta(minutes=tz_offset_minutes))
+    now_local = datetime.now(timezone.utc).astimezone(tz)
+    start_date = now_local.date() - timedelta(days=days - 1)
+    today_key = now_local.date().isoformat()
+    seven_start = now_local.date() - timedelta(days=6)
+
+    accounts = list(load_accounts(workspace_file(workspace_id, "accounts.json")).values())
+    temp_addresses = list(load_temp_addresses(workspace_file(workspace_id, "temp_addresses.json")).values())
+    generic_accounts = list(load_generic_accounts(workspace_file(workspace_id, "generic_accounts.json")).values())
+    refresh_results = load_refresh_results(workspace_file(workspace_id, "refresh_results.json"))
+    messages = load_messages(workspace_file(workspace_id, "messages.json"))
+
+    all_mailboxes = [
+        {"source": "microsoft", "email": item.email, "status": item.last_status, "error_code": item.last_error_code}
+        for item in accounts
+    ] + [
+        {"source": "temp", "email": item.email, "status": item.last_status, "error_code": item.last_error_code}
+        for item in temp_addresses
+    ] + [
+        {"source": "generic", "email": item.email, "status": item.last_status, "error_code": item.last_error_code}
+        for item in generic_accounts
+    ]
+    mailbox_status_counts = count_by_value(all_mailboxes, lambda row: row.get("status") or "idle")
+    mailbox_error_count = sum(1 for row in all_mailboxes if coerce_text(row.get("status")).lower() in {"error", "failed"} or coerce_text(row.get("error_code")))
+
+    def refresh_plan_type(row: dict[str, Any]) -> str:
+        auth_file = row.get("auth_file") if isinstance(row.get("auth_file"), dict) else {}
+        return row.get("plan_type") or auth_file.get("plan_type") or auth_file.get("chatgpt_plan_type") or "unknown"
+
+    refresh_plan_counts = count_by_value(refresh_results, refresh_plan_type)
+    refreshed_today = 0
+    refreshed_week = 0
+    for row in refresh_results:
+        parsed = parse_message_datetime(row.get("refreshed_at"))
+        if not parsed:
+            continue
+        day = parsed.astimezone(tz).date()
+        if day.isoformat() == today_key:
+            refreshed_today += 1
+        if day >= seven_start:
+            refreshed_week += 1
+
+    message_type_counts = count_by_value(messages, lambda row: row.get("mail_type") or classify_mail(" ".join(coerce_text(row.get(key)) for key in ["sender", "subject", "preview", "body"])))
+    source_counts = count_by_value(messages, lambda row: row.get("source") or row.get("provider") or "unknown")
+
+    banned_daily: dict[str, int] = {}
+    banned_domains: dict[str, int] = {}
+    banned_recipients: dict[str, int] = {}
+    banned_messages: list[dict[str, Any]] = []
+    unknown_day_count = 0
+
+    for message in messages:
+        if not is_banned_mail_message(message):
+            continue
+        parsed = parse_message_datetime(message.get("received_at") or message.get("cached_at"))
+        local_dt = parsed.astimezone(tz) if parsed else None
+        day_key = local_dt.date().isoformat() if local_dt else "unknown"
+        if day_key == "unknown":
+            unknown_day_count += 1
+        elif local_dt and local_dt.date() < start_date:
+            continue
+
+        recipient = coerce_text(message.get("account"))
+        domain = recipient.split("@", 1)[1].lower() if "@" in recipient else ""
+        banned_daily[day_key] = banned_daily.get(day_key, 0) + 1
+        if recipient:
+            banned_recipients[recipient.lower()] = banned_recipients.get(recipient.lower(), 0) + 1
+        if domain:
+            banned_domains[domain] = banned_domains.get(domain, 0) + 1
+        banned_messages.append({
+            "recipient": recipient,
+            "subject": coerce_text(message.get("subject")),
+            "sender": coerce_text(message.get("sender")),
+            "received_at": coerce_text(message.get("received_at") or message.get("cached_at")),
+            "local_day": day_key,
+            "source": coerce_text(message.get("source") or message.get("provider")),
+            "preview": coerce_text(message.get("preview"))[:180],
+        })
+
+    banned_messages.sort(key=lambda item: item.get("received_at") or "", reverse=True)
+    daily_rows = []
+    for index in range(days):
+        day = start_date + timedelta(days=index)
+        day_key = day.isoformat()
+        daily_rows.append({"date": day_key, "count": banned_daily.get(day_key, 0)})
+
+    banned_total = sum(item["count"] for item in daily_rows) + unknown_day_count
+    return {
+        "success": True,
+        "version": APP_VERSION,
+        "generated_at": iso_now(),
+        "workspace_id": workspace_id,
+        "timezone_offset_minutes": tz_offset_minutes,
+        "days": days,
+        "mailboxes": {
+            "total": len(all_mailboxes),
+            "microsoft": len(accounts),
+            "temp": len(temp_addresses),
+            "generic": len(generic_accounts),
+            "error": mailbox_error_count,
+            "status": sorted_count_rows(mailbox_status_counts, "status", limit=12),
+        },
+        "refresh": {
+            "saved_total": len(refresh_results),
+            "today": refreshed_today,
+            "last_7_days": refreshed_week,
+            "plans": sorted_count_rows(refresh_plan_counts, "plan_type", limit=12),
+        },
+        "messages": {
+            "cached_total": len(messages),
+            "types": sorted_count_rows(message_type_counts, "type", limit=12),
+            "sources": sorted_count_rows(source_counts, "source", limit=12),
+        },
+        "banned_mail": {
+            "total": banned_total,
+            "today": banned_daily.get(today_key, 0),
+            "last_7_days": sum(row["count"] for row in daily_rows if datetime.fromisoformat(row["date"]).date() >= seven_start),
+            "unique_recipients": len(banned_recipients),
+            "unknown_day_count": unknown_day_count,
+            "daily": daily_rows,
+            "domains": sorted_count_rows(banned_domains, "domain", limit=20),
+            "recipients": sorted_count_rows(banned_recipients, "recipient", limit=50),
+            "messages": banned_messages[:limit],
+        },
+    }
 
 
 REFRESH_RESULTS_LIMIT = 500
@@ -9148,6 +9319,9 @@ class Handler(BaseHTTPRequestHandler):
         if request_path.lower() in {"/converter", "/converter/"}:
             self.serve_static_file(STATIC_DIR / "converter.html")
             return
+        if request_path.lower() in {"/dashboard", "/dashboard/"}:
+            self.serve_static_file(STATIC_DIR / "dashboard.html")
+            return
         if request_path.lower() in {"/refresh", "/refresh/"}:
             self.serve_static_file(STATIC_DIR / "refresh.html")
             return
@@ -9195,6 +9369,18 @@ class Handler(BaseHTTPRequestHandler):
                     payload,
                     limit=params.get("limit", ["80"])[0],
                     offset=params.get("offset", ["0"])[0],
+                ))
+            except Exception as exc:
+                self.send_json({"success": False, "error": str(exc)[:500]}, status=HTTPStatus.BAD_REQUEST)
+            return
+        if parsed_client.path == "/client-api/dashboard-stats":
+            try:
+                params = urllib.parse.parse_qs(parsed_client.query)
+                self.send_json(dashboard_stats_response(
+                    self.workspace_id(),
+                    days=params.get("days", ["30"])[0],
+                    limit=params.get("limit", ["300"])[0],
+                    tz_offset_minutes=params.get("tz_offset", ["480"])[0],
                 ))
             except Exception as exc:
                 self.send_json({"success": False, "error": str(exc)[:500]}, status=HTTPStatus.BAD_REQUEST)
@@ -9803,6 +9989,8 @@ class Handler(BaseHTTPRequestHandler):
             target = STATIC_DIR / "index.html"
         elif path in {"/converter", "/converter/"}:
             target = STATIC_DIR / "converter.html"
+        elif path in {"/dashboard", "/dashboard/"}:
+            target = STATIC_DIR / "dashboard.html"
         elif path in {"/refresh", "/refresh/"}:
             target = STATIC_DIR / "refresh.html"
         elif path in {"/mailboxes", "/mailboxes/"}:
