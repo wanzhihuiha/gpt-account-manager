@@ -2333,7 +2333,7 @@ function backupLocalData() {
   downloadJsonFile(`gpt-account-manager-local-backup-${timestamp}.json`, {
     app: "gpt-account-manager",
     kind: "browser-local-backup",
-    version: "0.8.5",
+    version: "1.0.0",
     exported_at: new Date().toISOString(),
     storage: Object.fromEntries(Object.values(STORAGE_KEYS).map((key) => [key, loadJson(key, null)])),
   });
