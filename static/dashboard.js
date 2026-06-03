@@ -24,7 +24,6 @@
     banDailyBars: document.querySelector("#banDailyBars"),
     messageDailyBars: document.querySelector("#messageDailyBars"),
     banDomainRank: document.querySelector("#banDomainRank"),
-    banRecipientRank: document.querySelector("#banRecipientRank"),
     banMessageRows: document.querySelector("#banMessageRows"),
     mailboxTotal: document.querySelector("#mailboxTotal"),
     mailboxMicrosoft: document.querySelector("#mailboxMicrosoft"),
@@ -294,7 +293,6 @@
     renderBars(els.banDailyBars, banned.daily, text("暂无趋势数据", "No trend data"));
     renderBars(els.messageDailyBars, messages.daily, text("暂无缓存趋势数据", "No cached mail trend"));
     renderRank(els.banDomainRank, banned.domains, "domain", text("暂无封禁域名统计", "No banned domain stats"));
-    renderRank(els.banRecipientRank, banned.recipients, "recipient", text("暂无收件邮箱统计", "No recipient stats"));
     renderRank(els.planRank, refresh.plans, "plan_type", text("暂无账号类型统计", "No plan stats"));
     renderRank(els.mailboxStatusRank, mailboxes.status, "status", text("暂无邮箱状态统计", "No mailbox status stats"));
     renderRank(els.mailboxErrorRank, mailboxes.errors, "error_code", text("暂无邮箱错误统计", "No mailbox error stats"));

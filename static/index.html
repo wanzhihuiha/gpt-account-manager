@@ -77,33 +77,48 @@
               <button type="button" data-source="generic" aria-pressed="false"><span>其他</span><strong id="genericCount">0</strong></button>
             </div>
           </div>
-          <div class="mailbox-search-row">
-            <input id="mailboxSearch" placeholder="搜索邮箱">
-          </div>
-          <div class="panel-actions import-actions">
-            <button id="importMailboxBtn" class="primary" type="button">导入邮箱</button>
-          </div>
-          <div class="panel-actions secondary-actions">
-            <button id="selectAllBtn" type="button">全选</button>
-            <button id="backupLocalBtn" type="button">备份</button>
-            <label class="inline-file-button" for="restoreLocalFile">恢复<input id="restoreLocalFile" type="file" accept=".json,application/json"></label>
-            <button id="clearLocalBtn" class="ghost danger" type="button">清空本地</button>
-          </div>
-          <div class="mailbox-tools">
-            <select id="mailboxCategoryFilter"></select>
-            <button id="addCategoryBtn" type="button">添加分组</button>
-            <button id="groupByImportDateBtn" type="button">按导入时间分组</button>
-            <button id="deleteCategoryBtn" class="ghost danger" type="button">删除分组</button>
-          </div>
-          <div class="mailbox-pager">
-            <select id="mailboxPageSize">
-              <option value="10">10 / 页</option>
-              <option value="20" selected>20 / 页</option>
-              <option value="50">50 / 页</option>
-            </select>
-            <button id="mailboxPrevPage" type="button" aria-label="上一页">‹</button>
-            <span id="mailboxPageText">1 / 1</span>
-            <button id="mailboxNextPage" type="button" aria-label="下一页">›</button>
+          <button
+            id="mailboxControlsToggle"
+            class="mailbox-controls-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="mailboxControlsBody"
+          >
+            <span class="mailbox-controls-toggle-copy">
+              <strong>工具区</strong>
+              <em>展开搜索、导入、分组与分页</em>
+            </span>
+            <span id="mailboxControlsToggleText">展开</span>
+          </button>
+          <div id="mailboxControlsBody" class="mailbox-controls" hidden>
+            <div class="mailbox-search-row">
+              <input id="mailboxSearch" placeholder="搜索邮箱">
+            </div>
+            <div class="panel-actions import-actions">
+              <button id="importMailboxBtn" class="primary" type="button">导入邮箱</button>
+            </div>
+            <div class="panel-actions secondary-actions">
+              <button id="selectAllBtn" type="button">全选</button>
+              <button id="backupLocalBtn" type="button">备份</button>
+              <label class="inline-file-button" for="restoreLocalFile">恢复<input id="restoreLocalFile" type="file" accept=".json,application/json"></label>
+              <button id="clearLocalBtn" class="ghost danger" type="button">清空本地</button>
+            </div>
+            <div class="mailbox-tools">
+              <select id="mailboxCategoryFilter"></select>
+              <button id="addCategoryBtn" type="button">添加分组</button>
+              <button id="groupByImportDateBtn" type="button">按导入时间分组</button>
+              <button id="deleteCategoryBtn" class="ghost danger" type="button">删除分组</button>
+            </div>
+            <div class="mailbox-pager">
+              <select id="mailboxPageSize">
+                <option value="10">10 / 页</option>
+                <option value="20" selected>20 / 页</option>
+                <option value="50">50 / 页</option>
+              </select>
+              <button id="mailboxPrevPage" type="button" aria-label="上一页">‹</button>
+              <span id="mailboxPageText">1 / 1</span>
+              <button id="mailboxNextPage" type="button" aria-label="下一页">›</button>
+            </div>
           </div>
           <div id="mailboxList" class="mailbox-list empty">暂无邮箱</div>
         </section>
@@ -221,9 +236,7 @@
                   <option value="verification">验证码</option>
                   <option value="invite">邀请</option>
                   <option value="security">安全</option>
-                  <option value="reset">重置</option>
-                  <option value="billing">账单</option>
-                  <option value="newsletter">通知</option>
+                  <option value="promotion">推广</option>
                   <option value="banned">封禁</option>
                   <option value="other">其他</option>
                 </select>

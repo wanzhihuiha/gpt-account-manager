@@ -159,6 +159,10 @@
                 </label>
                 <input id="cpaBaseUrl" placeholder="CPA 地址，例如 http://127.0.0.1:8317">
                 <input id="cpaManagementKey" type="password" placeholder="CPA 管理密钥">
+                <div class="cpa-sync-actions">
+                  <button id="manualUploadCpa" type="button">手动上传</button>
+                  <span id="cpaSyncStatus">可手动上传已生成的凭证结果</span>
+                </div>
               </div>
             </details>
 
@@ -166,19 +170,22 @@
               <summary>
                 <span>
                   <strong>取码邮箱补充</strong>
-                  <em>Outlook 四段或临时邮箱 JWT 同步</em>
+                  <em>快捷导入并同步到邮箱池</em>
                 </span>
                 <b>导入</b>
               </summary>
               <div class="refresh-config-body">
                 <div class="credential-hint-bar">
                   <strong>先自动匹配账号管理页已有取码资料。</strong>
-                  <span>只有匹配不到时，Outlook 在下方补四段；临时邮箱从 Worker 同步 JWT。</span>
-                  <a href="/?import=mailbox">导入邮箱</a>
+                  <span>这里可以快捷导入 Outlook、临时邮箱和其他邮箱资料，导入后会自动同步到账户池并可直接接码。</span>
+                  <div class="credential-hint-actions">
+                    <button id="openPickupImportModal" type="button">快捷导入邮箱</button>
+                    <a href="/mailboxes.html">邮箱管理</a>
+                  </div>
                 </div>
-                <div class="pickup-import-panel">
-                  <textarea id="pickupImportText" rows="2" spellcheck="false" placeholder="Outlook 取码四段：邮箱----密码----client_id----refresh_token，可一次粘贴多行"></textarea>
-                  <button id="importPickupCredentials" type="button">导入 Outlook 取码</button>
+                <div class="pickup-import-panel pickup-import-summary">
+                  <span>支持自动识别、Outlook、临时邮箱 JWT，以及 163 / QQ / iCloud / Gmail / IMAP / POP3 / API 类邮箱。</span>
+                  <button id="openPickupImportModalInline" type="button">打开导入弹窗</button>
                 </div>
                 <div class="refresh-options temp-sync-options">
                   <label class="toggle">
@@ -228,6 +235,15 @@
                 </div>
                 <div id="phonePoolList" class="phone-pool-list">
                   <div class="phone-pool-empty">还没有长效手机。</div>
+                </div>
+                <div class="phone-binding-panel">
+                  <div class="phone-binding-head">
+                    <strong>手机号对照单</strong>
+                    <span>展开本块即可查看手机与邮箱绑定关系</span>
+                  </div>
+                  <div id="phoneBindingList" class="phone-binding-list">
+                    <div class="phone-pool-empty">还没有手机号绑定关系。</div>
+                  </div>
                 </div>
               </div>
             </details>
@@ -293,6 +309,48 @@
       <div class="modal-actions">
         <button id="cancelManualCodeModal" class="ghost" type="button">取消</button>
         <button id="confirmManualCodeModal" class="primary" type="button">提交验证码</button>
+      </div>
+    </section>
+  </div>
+  <div id="pickupImportModal" class="modal-backdrop refresh-mailbox-import-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="pickup-import-title">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">Import</p>
+          <h2 id="pickup-import-title">快捷导入取码邮箱</h2>
+        </div>
+        <button id="closePickupImportModal" class="icon" type="button" aria-label="关闭">×</button>
+      </div>
+      <label class="modal-field">
+        <span>导入类型</span>
+        <select id="pickupImportSource">
+          <option value="auto">自动识别</option>
+          <option value="microsoft">Outlook 邮箱</option>
+          <option value="temp">临时邮箱</option>
+          <option value="generic">其他邮箱</option>
+        </select>
+      </label>
+      <label class="modal-field" id="pickupTempApiField">
+        <span>临时邮箱 API URL</span>
+        <input id="pickupTempApi" placeholder="https://maip.wsphl.cfd">
+      </label>
+      <label class="modal-field" id="pickupTempSitePasswordField">
+        <span>临时邮箱站点密钥</span>
+        <input id="pickupTempSitePassword" placeholder="没有可留空">
+      </label>
+      <label class="modal-file" for="pickupImportFile">
+        <span>选择 TXT / CSV / JSON 文件</span>
+        <em id="pickupImportFileName">也可以直接粘贴到下面</em>
+        <input id="pickupImportFile" type="file" accept=".txt,.csv,.json,text/plain,application/json">
+      </label>
+      <label class="modal-field">
+        <span>邮箱数据</span>
+        <textarea id="pickupImportText" rows="8" spellcheck="false" data-i18n-skip="true" placeholder="选择导入类型后显示对应格式"></textarea>
+      </label>
+      <div id="pickupImportPreview" class="import-preview">粘贴后会先预检格式。</div>
+      <div class="modal-actions">
+        <button id="cancelPickupImportModal" class="ghost" type="button">取消</button>
+        <button id="confirmPickupImport" class="primary" type="button">导入并同步</button>
       </div>
     </section>
   </div>

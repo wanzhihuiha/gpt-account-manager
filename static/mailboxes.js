@@ -5,6 +5,20 @@ const STORAGE_KEYS = {
   workspaceId: "ctgptm.workspaceId",
 };
 
+const RESERVED_CATEGORY_NAMES = new Set(["已封禁"]);
+const LEGACY_CATEGORY_NAMES = new Set([
+  "默认",
+  "default",
+  "outlook",
+  "临时邮箱",
+  "temp",
+  "microsoft",
+  "generic",
+  "邮箱",
+  "mailbox",
+]);
+const IMPORT_DATE_CATEGORY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 const SERVICE_LABELS = {
   microsoft: "Outlook",
   temp: "临时邮箱",
@@ -13,20 +27,20 @@ const SERVICE_LABELS = {
 
 const IMPORT_PLACEHOLDERS = {
   auto: [
-    "user@outlook.com----password----client_id----refresh_token----默认分组",
-    "user@example.com----JWT_TOKEN----默认分组",
+    "user@outlook.com----password----client_id----refresh_token----自定义分组",
+    "user@example.com----JWT_TOKEN----自定义分组",
     "user@163.com----授权码或邮箱密码",
     "user@qq.com----授权码",
     "user@icloud.com----App 专用密码",
   ].join("\n"),
-  microsoft: "user@outlook.com----password----client_id----refresh_token----默认分组",
-  temp: "user@example.com----JWT_TOKEN\nuser@example.com----JWT_TOKEN----默认分组",
+  microsoft: "user@outlook.com----password----client_id----refresh_token----自定义分组",
+  temp: "user@example.com----JWT_TOKEN\nuser@example.com----JWT_TOKEN----自定义分组",
   generic: [
     "user@163.com----授权码或邮箱密码",
     "user@qq.com----授权码",
     "user@icloud.com----App 专用密码",
     "user@gmail.com----App Password",
-    "user@example.com----password----imap.example.com----993----默认分组",
+    "user@example.com----password----imap.example.com----993----自定义分组",
   ].join("\n"),
 };
 
@@ -225,9 +239,22 @@ function genericAccountPayload(account) {
   };
 }
 
+function isImportDateCategory(value) {
+  return IMPORT_DATE_CATEGORY_PATTERN.test(String(value || "").trim());
+}
+
+function isAllowedCategory(value) {
+  const clean = String(value || "").trim();
+  if (!clean) return false;
+  if (RESERVED_CATEGORY_NAMES.has(clean)) return true;
+  if (isImportDateCategory(clean)) return true;
+  return !LEGACY_CATEGORY_NAMES.has(clean.toLowerCase());
+}
+
 function normalizeStoredCategories(value) {
   const rows = Array.isArray(value) ? value : [];
-  return [...new Set(rows.map((item) => String(item || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return [...new Set(rows.map((item) => String(item || "").trim()).filter((item) => isAllowedCategory(item)))]
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function sortableTime(value) {
@@ -270,6 +297,9 @@ function normalizeStoredAccount(account) {
   if (!account || typeof account !== "object") return null;
   const email = String(account.email || "").trim();
   if (!email.includes("@")) return null;
+  const normalizedCategory = isAllowedCategory(account.category || account.label)
+    ? String(account.category || account.label || "").trim()
+    : "";
   const source = account.source === "generic" || String(account.id || "").startsWith("generic:")
     ? "generic"
     : account.source === "temp" || String(account.id || "").startsWith("temp:")
@@ -288,7 +318,7 @@ function normalizeStoredAccount(account) {
       client_id: "",
       refresh_token: "",
       site_password: "",
-      category: String(payload.category || account.category || account.label || "").trim(),
+      category: normalizedCategory,
       selected: account.selected !== false,
     };
   }
@@ -305,7 +335,7 @@ function normalizeStoredAccount(account) {
       password: "",
       client_id: "",
       refresh_token: "",
-      category: String(account.category || account.label || "").trim(),
+      category: normalizedCategory,
       selected: account.selected !== false,
     };
   }
@@ -318,7 +348,7 @@ function normalizeStoredAccount(account) {
     password: String(account.password || ""),
     client_id: String(account.client_id || account.clientId || ""),
     refresh_token: String(account.refresh_token || account.refreshToken || ""),
-    category: String(account.category || account.label || "").trim(),
+    category: normalizedCategory,
     selected: account.selected !== false,
   };
 }
@@ -337,7 +367,8 @@ function normalizeStoredAccounts(value) {
 function normalizeServerMailbox(item, source) {
   const email = String(item?.email || "").trim();
   if (!email.includes("@")) return null;
-  const category = String(item?.label || item?.category || "").trim();
+  const rawCategory = String(item?.label || item?.category || "").trim();
+  const category = isAllowedCategory(rawCategory) ? rawCategory : "";
   if (source === "generic") {
     return normalizeStoredAccount({
       id: `generic:${email.toLowerCase()}`,
@@ -408,7 +439,7 @@ function saveTempSettings() {
 
 function ensureCategory(name) {
   const text = String(name || "").trim();
-  if (!text || state.categories.includes(text)) return;
+  if (!isAllowedCategory(text) || state.categories.includes(text)) return;
   state.categories.push(text);
   state.categories.sort((a, b) => a.localeCompare(b));
 }
@@ -733,7 +764,7 @@ function renderGroupFilter() {
   const current = els.groupFilter.value || "all";
   const groups = [...new Set([
     ...state.categories,
-    ...state.accounts.map((account) => account.category).filter(Boolean),
+    ...state.accounts.map((account) => account.category).filter((category) => isAllowedCategory(category)),
   ])].sort((a, b) => a.localeCompare(b));
   els.groupFilter.innerHTML = `<option value="all">全部分组</option>${groups.map((group) =>
     `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`

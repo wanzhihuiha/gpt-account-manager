@@ -204,9 +204,7 @@ MAIL_TYPE_LABELS = {
     "verification": "verification",
     "invite": "invite",
     "security": "security",
-    "reset": "reset",
-    "billing": "billing",
-    "newsletter": "newsletter",
+    "promotion": "promotion",
     "banned": "banned",
     "other": "other",
 }
@@ -635,7 +633,22 @@ def load_messages(path: Path = MESSAGES_FILE) -> list[dict[str, Any]]:
     except json.JSONDecodeError:
         return []
     rows = raw.get("messages", []) if isinstance(raw, dict) else raw
-    return [item for item in rows if isinstance(item, dict)] if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        message = dict(item)
+        message_text = " ".join(
+            coerce_text(message.get(key))
+            for key in ["sender", "subject", "preview", "body", "html_body", "mail_type_label"]
+        )
+        normalized_type = normalize_mail_type(message.get("mail_type"), message_text)
+        message["mail_type"] = normalized_type
+        message["mail_type_label"] = MAIL_TYPE_LABELS.get(normalized_type, "other")
+        cleaned.append(message)
+    return cleaned
 
 
 def save_messages(messages: list[dict[str, Any]], path: Path = MESSAGES_FILE) -> None:
@@ -691,7 +704,11 @@ def lightweight_mail_fetch_result(result: dict[str, Any]) -> dict[str, Any]:
             continue
         message_codes = [coerce_text(code) for code in message.get("codes", []) if coerce_text(code)]
         codes.extend(message_codes)
-        if message_codes or coerce_text(message.get("mail_type")).lower() == "verification":
+        message_text = " ".join(
+            coerce_text(message.get(key))
+            for key in ["sender", "subject", "preview", "body", "html_body", "mail_type_label"]
+        )
+        if message_codes or normalize_mail_type(message.get("mail_type"), message_text) == "verification":
             has_verification_code = True
     clean["message_count"] = int(clean.get("message_count") or len(messages))
     clean["codes"] = list(dict.fromkeys(codes))[:10]
@@ -834,7 +851,13 @@ def dashboard_stats_response(
         if day >= seven_start:
             refreshed_week += 1
 
-    message_type_counts = count_by_value(messages, lambda row: row.get("mail_type") or classify_mail(" ".join(coerce_text(row.get(key)) for key in ["sender", "subject", "preview", "body"])))
+    message_type_counts = count_by_value(
+        messages,
+        lambda row: normalize_mail_type(
+            row.get("mail_type"),
+            " ".join(coerce_text(row.get(key)) for key in ["sender", "subject", "preview", "body", "html_body", "mail_type_label"]),
+        ),
+    )
     source_counts = count_by_value(messages, lambda row: row.get("source") or row.get("provider") or "unknown")
     message_daily: dict[str, int] = {}
     message_today = 0
@@ -2512,9 +2535,7 @@ def normalize_message(**kwargs: Any) -> dict[str, Any]:
     text = strip_html(f"{subject}\n{body_text}\n{html_text}")
     links = extract_links(text)
     codes = extract_codes(text)
-    mail_type = classify_mail(
-        f"{kwargs.get('sender', '')} {subject} {text}"
-    )
+    mail_type = normalize_mail_type("", f"{kwargs.get('sender', '')} {subject} {text}")
     return {
         **kwargs,
         "source": kwargs.get("source", "microsoft"),
@@ -2526,6 +2547,69 @@ def normalize_message(**kwargs: Any) -> dict[str, Any]:
         "codes": codes,
         "links": links[:12],
     }
+
+
+def normalize_mail_type(value: Any, text: str = "") -> str:
+    raw = coerce_text(value).strip().lower()
+    haystack = f"{raw} {coerce_text(text)}".lower()
+    if any(word in haystack for word in [
+        "access deactivated",
+        "account deactivated",
+        "deleted or deactivated",
+        "deactivated",
+        "disabled",
+        "banned",
+        "suspended",
+        "封禁",
+        "停用",
+        "禁用",
+    ]):
+        return "banned"
+    if (
+        any(word in haystack for word in [
+            "verify",
+            "verification",
+            "otp",
+            "confirm",
+            "验证码",
+            "安全代码",
+            "認証コード",
+            "認証番号",
+            "検証コード",
+            "確認コード",
+            "ワンタイム",
+            "一時ログインコード",
+        ])
+        and re.search(r"\b\d{4,8}\b", haystack)
+    ):
+        return "verification"
+    if any(word in haystack for word in ["invite", "invitation", "join", "team", "邀请"]):
+        return "invite"
+    if any(word in haystack for word in ["security", "alert", "sign-in", "login", "unusual", "安全", "登录", "multi-factor", "mfa"]):
+        return "security"
+    if any(word in haystack for word in [
+        "images",
+        "image",
+        "reimagine",
+        "plus plan",
+        "start creating",
+        "launch",
+        "promo",
+        "promotion",
+        "newsletter",
+        "digest",
+        "update",
+        "introducing",
+        "通知",
+        "订阅",
+        "推广",
+    ]):
+        return "promotion"
+    if raw == "reset":
+        return "security"
+    if raw in {"billing", "newsletter"}:
+        return "promotion"
+    return raw if raw in {"verification", "invite", "security", "promotion", "banned", "other"} else "other"
 
 
 def sanitize_email_html(value: str) -> str:
@@ -2575,33 +2659,7 @@ def extract_codes(text: str) -> list[str]:
 
 
 def classify_mail(text: str) -> str:
-    value = text.lower()
-    if any(word in value for word in [
-        "access deactivated",
-        "account deactivated",
-        "deleted or deactivated",
-        "deactivated",
-        "disabled",
-        "banned",
-        "suspended",
-        "封禁",
-        "停用",
-        "禁用",
-    ]):
-        return "banned"
-    if any(word in value for word in ["verify", "verification", "code", "otp", "confirm", "验证码", "安全代码"]):
-        return "verification"
-    if any(word in value for word in ["invite", "invitation", "join", "team", "邀请"]):
-        return "invite"
-    if any(word in value for word in ["security", "alert", "sign-in", "login", "unusual", "安全", "登录"]):
-        return "security"
-    if any(word in value for word in ["reset", "recover", "password", "重置", "找回密码"]):
-        return "reset"
-    if any(word in value for word in ["invoice", "receipt", "payment", "billing", "账单", "付款", "收据"]):
-        return "billing"
-    if any(word in value for word in ["newsletter", "digest", "update", "通知", "订阅"]):
-        return "newsletter"
-    return "other"
+    return normalize_mail_type("", text)
 
 
 
@@ -2623,7 +2681,13 @@ def filter_messages(messages: list[dict[str, Any]], payload: dict[str, Any]) -> 
             continue
         if source != "all" and source != str(message.get("source", "")).lower():
             continue
-        if mail_type != "all" and mail_type != str(message.get("mail_type", "")).lower():
+        normalized_message_type = normalize_mail_type(
+            message.get("mail_type"),
+            " ".join(str(message.get(key, "")) for key in [
+                "sender", "subject", "preview", "body", "html_body", "mail_type_label",
+            ]),
+        )
+        if mail_type != "all" and mail_type != normalized_message_type:
             continue
         if category != "all" and category != str(message.get("category", "")).lower():
             continue

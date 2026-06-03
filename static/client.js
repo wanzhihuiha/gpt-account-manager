@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
   cpaSettings: "ctgptm.mail.cpaSettings",
   tempSettings: "ctgptm.mail.tempSettings",
   workspaceId: "ctgptm.workspaceId",
+  mailboxControlsCollapsed: "ctgptm.mail.mailboxControlsCollapsed.v2",
 };
 const DEFAULT_TEMP_WORKER_URL = "";
 const LEGACY_TEMP_WORKER_URLS = new Set([]);
@@ -16,9 +17,7 @@ const TYPE_LABELS = {
   verification: "验证码",
   invite: "邀请",
   security: "安全",
-  reset: "重置",
-  billing: "账单",
-  newsletter: "通知",
+  promotion: "推广",
   banned: "封禁",
   other: "其他",
 };
@@ -38,6 +37,20 @@ function accountSourceGroup(account) {
 
 const EMPTY_CATEGORY_LABEL = "未分组";
 const LEGACY_SEEDED_CATEGORIES = new Set(["默认", "客户", "注册", "账单"]);
+const RESERVED_CATEGORY_NAMES = new Set(["已封禁"]);
+const LEGACY_CATEGORY_NAMES = new Set([
+  "默认",
+  "客户",
+  "注册",
+  "账单",
+  "outlook",
+  "临时邮箱",
+  "temp",
+  "microsoft",
+  "generic",
+  "邮箱",
+]);
+const IMPORT_DATE_CATEGORY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MOJIBAKE_TEXT_FIXES = new Map([
   ["\u699b\u6a3f\ue17b", "默认"],
   ["\u93c8\ue044\u578e\u7f01\u003f", "未分组"],
@@ -126,6 +139,9 @@ const els = {
   genericCount: document.querySelector("#genericCount"),
   mailboxTotal: document.querySelector("#mailboxTotal"),
   mailboxSourceFilter: document.querySelector("#mailboxSourceFilter"),
+  mailboxControlsToggle: document.querySelector("#mailboxControlsToggle"),
+  mailboxControlsToggleText: document.querySelector("#mailboxControlsToggleText"),
+  mailboxControlsBody: document.querySelector("#mailboxControlsBody"),
   addCategoryBtn: document.querySelector("#addCategoryBtn"),
   groupByImportDateBtn: document.querySelector("#groupByImportDateBtn"),
   deleteCategoryBtn: document.querySelector("#deleteCategoryBtn"),
@@ -222,6 +238,7 @@ const state = {
   page: 1,
   mailboxPage: 1,
   lastFetchMessageCount: 0,
+  mailboxControlsCollapsed: loadJson(STORAGE_KEYS.mailboxControlsCollapsed, true) !== false,
 };
 
 const cpaSettings = loadJson(STORAGE_KEYS.cpaSettings, {});
@@ -269,6 +286,21 @@ function saveJson(key, value) {
     }
     throw error;
   }
+}
+
+function applyMailboxControlsState() {
+  const collapsed = Boolean(state.mailboxControlsCollapsed);
+  document.body.classList.toggle("mailbox-controls-collapsed", collapsed);
+  if (els.mailboxControlsBody) els.mailboxControlsBody.hidden = collapsed;
+  if (els.mailboxControlsToggle) els.mailboxControlsToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  if (els.mailboxControlsToggleText) els.mailboxControlsToggleText.textContent = collapsed ? "展开" : "收起";
+}
+
+function toggleMailboxControls(forceCollapsed) {
+  const next = typeof forceCollapsed === "boolean" ? forceCollapsed : !state.mailboxControlsCollapsed;
+  state.mailboxControlsCollapsed = next;
+  saveJson(STORAGE_KEYS.mailboxControlsCollapsed, next);
+  applyMailboxControlsState();
 }
 
 function getWorkspaceId() {
@@ -588,8 +620,20 @@ function preferRealSecret(nextValue, currentValue) {
 function normalizeStoredCategories(value) {
   if (!Array.isArray(value)) return [];
   const cleaned = [...new Set(value.map((category) => String(category || "").trim()).filter(Boolean))]
-    .filter((category) => category !== "默认");
+    .filter((category) => isAllowedCategory(category));
   return cleaned.length && cleaned.every((category) => LEGACY_SEEDED_CATEGORIES.has(category)) ? [] : cleaned;
+}
+
+function isImportDateCategory(value) {
+  return IMPORT_DATE_CATEGORY_PATTERN.test(String(value || "").trim());
+}
+
+function isAllowedCategory(value) {
+  const clean = String(value || "").trim();
+  if (!clean) return false;
+  if (RESERVED_CATEGORY_NAMES.has(clean)) return true;
+  if (isImportDateCategory(clean)) return true;
+  return !LEGACY_CATEGORY_NAMES.has(clean.toLowerCase());
 }
 
 function sortableTime(value) {
@@ -749,6 +793,9 @@ function normalizeStoredAccounts(value) {
   value.forEach((account) => {
     const normalized = normalizeStoredAccount(account);
     if (!normalized) return;
+    if (!isAllowedCategory(normalized.category)) {
+      normalized.category = "";
+    }
     if (normalized.source === "temp") {
       byId.delete(`microsoft:${normalized.email.toLowerCase()}`);
     }
@@ -762,7 +809,40 @@ function normalizeStoredMessages(value) {
   return value.map((message) => ({
     ...message,
     category: message.category === "默认" ? "" : (message.category || ""),
+    mail_type: normalizeMailType(message.mail_type, message),
   }));
+}
+
+function normalizeMailType(value, message = null) {
+  const text = String(value || "").trim().toLowerCase();
+  const haystack = [
+    text,
+    message?.mail_type_label,
+    message?.subject,
+    message?.preview,
+    message?.body,
+  ].map((item) => String(item || "").toLowerCase()).join(" ");
+  if (/\baccess\s+deactivated\b|\baccount\s+(deactivated|disabled|banned|suspended)\b|deleted\s+or\s+deactivated|封禁|停用|禁用/.test(haystack)) {
+    return "banned";
+  }
+  if (
+    /\bverification\b|\bverify\b|\botp\b|\bcode\b|验证码|安全代码|認証コード|認証番号|検証コード|確認コード|ワンタイム|一時ログインコード/.test(haystack)
+    && /\d{4,8}/.test(haystack)
+  ) {
+    return "verification";
+  }
+  if (/\binvite\b|\binvitation\b|\bjoin\b|\bteam\b|邀请/.test(haystack)) {
+    return "invite";
+  }
+  if (/\bsecurity\b|\balert\b|\bsign-in\b|\blogin\b|\bunusual\b|安全|登录|multi-factor|mfa/.test(haystack)) {
+    return "security";
+  }
+  if (/\bimages?\b|\breimagine\b|\bplus\s+plan\b|\bstart\s+creating\b|\blaunch\b|\bpromo\b|\bpromotion\b|\bnewsletter\b|\bdigest\b|\bupdate\b|\bintroducing\b|推广|订阅|最新动态/.test(haystack)) {
+    return "promotion";
+  }
+  if (text === "reset") return "security";
+  if (text === "billing" || text === "newsletter") return "promotion";
+  return ["verification", "invite", "security", "promotion", "banned", "other"].includes(text) ? text : "other";
 }
 
 function normalizeStoredAbnormalRows(value) {
@@ -1109,6 +1189,33 @@ function htmlToPlainText(value) {
     .trim();
 }
 
+function normalizePlainMailBody(value) {
+  const lines = String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .split("\n")
+    .map((line) => line.replace(/[ \t\u3000]+$/g, ""));
+  const compact = [];
+  let previousBlank = false;
+  lines.forEach((line) => {
+    const clean = line.trim();
+    if (!clean) {
+      if (!previousBlank && compact.length) compact.push("");
+      previousBlank = true;
+      return;
+    }
+    compact.push(clean);
+    previousBlank = false;
+  });
+  return compact.join("\n").trim();
+}
+
+function renderPlainMailBody(value) {
+  const clean = normalizePlainMailBody(value);
+  if (!clean) return '<p class="muted">这封邮件没有可展示的正文。</p>';
+  return `<div class="mail-body-plain">${escapeHtml(clean).replace(/\n/g, "<br>")}</div>`;
+}
+
 function csvParts(line) {
   const parts = [];
   let current = "";
@@ -1246,7 +1353,7 @@ function parseStructuredText(text, source) {
 
 function ensureCategory(name) {
   const clean = String(name || "").trim();
-  if (clean && !state.categories.includes(clean)) {
+  if (isAllowedCategory(clean) && !state.categories.includes(clean)) {
     state.categories.push(clean);
   }
 }
@@ -1262,8 +1369,9 @@ function isBannedMessage(message) {
 }
 
 function mailTypeLabel(message) {
-  if (message?.is_banned || isBannedMessage(message)) return "封禁";
-  return TYPE_LABELS[message?.mail_type] || message?.mail_type_label || "其他";
+  const normalized = normalizeMailType(message?.mail_type, message);
+  if (normalized === "banned" || message?.is_banned || isBannedMessage(message)) return "封禁";
+  return TYPE_LABELS[normalized] || "其他";
 }
 
 function selectedMailTypeLabel() {
@@ -1340,6 +1448,7 @@ function filteredAccounts() {
 }
 
 function renderCategories() {
+  state.categories = state.categories.filter((category) => isAllowedCategory(category));
   const categoryList = ["all", ...state.categories];
   const options = categoryList.map((category) => {
     if (category === "all") return `<option value="all">全部分类</option>`;
@@ -1580,21 +1689,24 @@ function renderDetail(message) {
   els.pushRefreshBtn.disabled = false;
   els.deleteMessageBtn.disabled = false;
   els.mailDetail.className = `mail-detail${message.is_banned ? " banned" : ""}`;
+  const normalizedType = normalizeMailType(message.mail_type, message);
   const visibleCodes = codes.slice(0, 3);
   const hiddenCodeCount = Math.max(0, codes.length - visibleCodes.length);
   const codeBlock = codes.length
     ? `<div class="detail-codes">${visibleCodes.map((code) => `<span>${escapeHtml(code)}</span>`).join("")}${hiddenCodeCount ? `<span class="more">+${hiddenCodeCount}</span>` : ""}</div>`
     : `<p class="muted">这封邮件没有识别到验证码。</p>`;
-  const plainBody = message.body || message.preview || htmlToPlainText(message.html_body) || "";
-  const bodyBlock = message.html_body
+  const plainBody = normalizePlainMailBody(message.body || message.preview || htmlToPlainText(message.html_body) || "");
+  const hasHtmlBody = Boolean(message.html_body);
+  const bodyBlock = hasHtmlBody
     ? `
       <iframe class="mail-html-frame" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" scrolling="auto"></iframe>
-      ${plainBody ? `<details class="plain-fallback"><summary>纯文本备用</summary><pre class="mail-body-text">${escapeHtml(plainBody)}</pre></details>` : ""}
+      ${plainBody ? `<details class="plain-fallback"><summary>纯文本备用</summary>${renderPlainMailBody(plainBody)}</details>` : ""}
     `
-    : `<pre class="mail-body-text">${escapeHtml(plainBody)}</pre>`;
+    : renderPlainMailBody(plainBody);
   els.mailDetail.innerHTML = `
     <h3>${escapeHtml(message.subject || "(无主题)")}</h3>
     <div class="detail-meta">
+      <span>${escapeHtml(TYPE_LABELS[normalizedType] || "其他")}</span>
       <span>${escapeHtml(message.sender || "-")}</span>
       <span>${escapeHtml(message.account || "-")}</span>
       <span>${escapeHtml(formatTime(message.received_at))}</span>
@@ -1604,15 +1716,15 @@ function renderDetail(message) {
     ${bodyBlock}
   `;
   const frame = els.mailDetail.querySelector(".mail-html-frame");
-  if (frame && message.html_body) {
+  if (frame && hasHtmlBody) {
     const resizeFrame = () => {
       try {
         const doc = frame.contentDocument;
-        const available = Math.max(96, Math.min(520, els.mailDetail.clientHeight - frame.offsetTop - 12));
+        const available = Math.max(140, Math.min(420, window.innerHeight - frame.getBoundingClientRect().top - 110));
         const contentHeight = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight, 0) + 18;
-        frame.style.height = `${Math.min(available, Math.max(96, contentHeight))}px`;
+        frame.style.height = `${Math.min(available, Math.max(140, contentHeight))}px`;
       } catch {
-        frame.style.height = "140px";
+        frame.style.height = "180px";
       }
     };
     frame.addEventListener("load", () => {
@@ -2992,7 +3104,10 @@ function pushActiveMessageAccountToRefresh() {
   toast(exists ? "这个邮箱已在凭证刷新池" : "已推送到凭证刷新池");
 }
 function renderAll() {
+  state.categories = state.categories.filter((category) => isAllowedCategory(category));
+  saveJson(STORAGE_KEYS.categories, state.categories);
   syncActiveMailboxSelection();
+  applyMailboxControlsState();
   renderCategories();
   renderAccounts();
   renderMessages();
@@ -3019,6 +3134,7 @@ function groupAccountsByImportDate() {
 }
 
 els.importMailboxBtn.addEventListener("click", () => openImportDialog("auto"));
+els.mailboxControlsToggle?.addEventListener("click", () => toggleMailboxControls());
 els.tabImportBtn?.addEventListener("click", () => openImportDialog("auto"));
 els.tabLoginBtn?.addEventListener("click", () => setActiveView("login"));
 els.tabLogsBtn?.addEventListener("click", () => setActiveView("logs"));

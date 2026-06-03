@@ -8,6 +8,27 @@ const STORAGE_KEYS = {
 };
 
 const EMPTY_CATEGORY_LABEL = "未分组";
+const IMPORT_PLACEHOLDERS = {
+  auto: [
+    "user@outlook.com----password----client_id----refresh_token----自定义分组",
+    "user@example.com----JWT_TOKEN----https://maip.wsphl.cfd----站点密钥----自定义分组",
+    "user@163.com----授权码或邮箱密码",
+    "user@qq.com----授权码",
+    "user@icloud.com----App 专用密码",
+  ].join("\n"),
+  microsoft: "user@outlook.com----password----client_id----refresh_token----自定义分组",
+  temp: [
+    "user@example.com----JWT_TOKEN",
+    "user@example.com----JWT_TOKEN----https://maip.wsphl.cfd----站点密钥----自定义分组",
+  ].join("\n"),
+  generic: [
+    "user@163.com----授权码或邮箱密码",
+    "user@qq.com----授权码",
+    "user@gmail.com----App Password",
+    "user@icloud.com----App 专用密码",
+    "user@example.com----password----imap.example.com----993----自定义分组",
+  ].join("\n"),
+};
 const MOJIBAKE_TEXT_FIXES = new Map([
   ["\u699b\u6a3f\ue17b", "默认"],
   ["\u93c8\ue044\u578e\u7f01\u003f", "未分组"],
@@ -131,13 +152,28 @@ const els = {
   autoUpdateCpa: document.querySelector("#autoUpdateCpa"),
   cpaBaseUrl: document.querySelector("#cpaBaseUrl"),
   cpaManagementKey: document.querySelector("#cpaManagementKey"),
+  manualUploadCpa: document.querySelector("#manualUploadCpa"),
+  cpaSyncStatus: document.querySelector("#cpaSyncStatus"),
   taskMode: document.querySelector("#taskMode"),
   tempSyncApi: document.querySelector("#tempSyncApi"),
   tempSyncAdminKey: document.querySelector("#tempSyncAdminKey"),
   tempSyncSitePassword: document.querySelector("#tempSyncSitePassword"),
   syncTempCredentials: document.querySelector("#syncTempCredentials"),
+  openPickupImportModal: document.querySelector("#openPickupImportModal"),
+  openPickupImportModalInline: document.querySelector("#openPickupImportModalInline"),
+  pickupImportModal: document.querySelector("#pickupImportModal"),
+  pickupImportSource: document.querySelector("#pickupImportSource"),
+  pickupTempApiField: document.querySelector("#pickupTempApiField"),
+  pickupTempSitePasswordField: document.querySelector("#pickupTempSitePasswordField"),
+  pickupTempApi: document.querySelector("#pickupTempApi"),
+  pickupTempSitePassword: document.querySelector("#pickupTempSitePassword"),
+  pickupImportFile: document.querySelector("#pickupImportFile"),
+  pickupImportFileName: document.querySelector("#pickupImportFileName"),
   pickupImportText: document.querySelector("#pickupImportText"),
-  importPickupCredentials: document.querySelector("#importPickupCredentials"),
+  pickupImportPreview: document.querySelector("#pickupImportPreview"),
+  closePickupImportModal: document.querySelector("#closePickupImportModal"),
+  cancelPickupImportModal: document.querySelector("#cancelPickupImportModal"),
+  confirmPickupImport: document.querySelector("#confirmPickupImport"),
   phoneNumber: document.querySelector("#phoneNumber"),
   phoneApiUrl: document.querySelector("#phoneApiUrl"),
   phoneModeBatch: document.querySelector("#phoneModeBatch"),
@@ -151,6 +187,7 @@ const els = {
   pollSelectedPhone: document.querySelector("#pollSelectedPhone"),
   addPhoneEntry: document.querySelector("#addPhoneEntry"),
   phonePoolList: document.querySelector("#phonePoolList"),
+  phoneBindingList: document.querySelector("#phoneBindingList"),
   manualCodeModal: document.querySelector("#manualCodeModal"),
   manualCodeModalEyebrow: document.querySelector("#manualCodeModalEyebrow"),
   manualCodeModalTitle: document.querySelector("#manualCodeModalTitle"),
@@ -169,10 +206,13 @@ if (els.loginConcurrency) els.loginConcurrency.value = "1";
 if (els.autoUpdateCpa) els.autoUpdateCpa.checked = Boolean(settings.auto_update_cpa);
 if (els.cpaBaseUrl) els.cpaBaseUrl.value = settings.cpa_base_url || "";
 if (els.cpaManagementKey) els.cpaManagementKey.value = settings.cpa_management_key || "";
+if (els.cpaSyncStatus) els.cpaSyncStatus.textContent = "可手动上传已生成的凭证结果";
 if (els.taskMode) els.taskMode.value = settings.task_mode || "login";
 if (els.tempSyncApi) els.tempSyncApi.value = settings.temp_sync_api || "";
 if (els.tempSyncAdminKey) els.tempSyncAdminKey.value = settings.temp_sync_admin_key || "";
 if (els.tempSyncSitePassword) els.tempSyncSitePassword.value = settings.temp_sync_site_password || "";
+if (els.pickupTempApi) els.pickupTempApi.value = settings.temp_sync_api || "";
+if (els.pickupTempSitePassword) els.pickupTempSitePassword.value = settings.temp_sync_site_password || "";
 if (els.phoneModeBatch) els.phoneModeBatch.checked = settings.phone_pool_mode === "batch";
 if (els.phoneModeOneToOne) els.phoneModeOneToOne.checked = settings.phone_pool_mode !== "batch";
 if (els.loginStrategy) els.loginStrategy.value = "protocol";
@@ -299,6 +339,12 @@ function toast(text) {
   els.toast.classList.add("show");
   clearTimeout(els.toast._timer);
   els.toast._timer = setTimeout(() => els.toast.classList.remove("show"), 2400);
+}
+
+function setCpaSyncStatus(text, tone = "") {
+  if (!els.cpaSyncStatus) return;
+  els.cpaSyncStatus.textContent = text;
+  els.cpaSyncStatus.dataset.tone = tone;
 }
 
 function parseErrorPayload(data, fallback = "启动失败") {
@@ -654,6 +700,327 @@ function genericAccountPayload(account) {
     pop3_port: Number(account.pop3_port || account.pop3Port || 995),
     category: account.category || account.label || "",
   };
+}
+
+function normalizeTempWorkerUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function isGenericApiMode(value) {
+  return ["cloudmail", "luckmail", "inbucket"].includes(normalizeGenericMode(value));
+}
+
+function csvPartsFlexible(line) {
+  const out = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (quoted && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+      continue;
+    }
+    if (char === "," && !quoted) {
+      out.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  out.push(current.trim());
+  return out;
+}
+
+function pickValue(item, keys) {
+  for (const key of keys) {
+    const value = item?.[key];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function looksLikeUrl(value) {
+  return /^https?:\/\//i.test(String(value || "").trim());
+}
+
+function looksLikeJwt(value) {
+  return String(value || "").split(".").length >= 3;
+}
+
+function parseStructuredText(text, source) {
+  const clean = String(text || "").trim();
+  if (!clean || !/^[\[{]/.test(clean)) return null;
+  try {
+    const parsed = JSON.parse(clean);
+    const rows = Array.isArray(parsed)
+      ? parsed
+      : (parsed.accounts || parsed.addresses || parsed.items || parsed.data || []);
+    return structuredRowsFromObjects(Array.isArray(rows) ? rows : [], source);
+  } catch {
+    return null;
+  }
+}
+
+function structuredRowsFromObjects(items, source) {
+  const rows = [];
+  const errors = [];
+  items.forEach((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      errors.push(`第 ${index + 1} 项不是对象`);
+      return;
+    }
+    const email = pickValue(item, ["email", "mail", "email_address", "address", "username"]);
+    if (!email.includes("@")) {
+      errors.push(`第 ${index + 1} 项缺少有效邮箱`);
+      return;
+    }
+    const hasMicrosoft = pickValue(item, ["client_id", "clientId"]) || pickValue(item, ["refresh_token", "refreshToken"]);
+    const hasTempJwt = looksLikeJwt(pickValue(item, ["jwt", "token", "access_token", "credential"]));
+    const rowSource = source === "auto" ? (hasMicrosoft ? "microsoft" : (hasTempJwt ? "temp" : "generic")) : source;
+    const category = pickValue(item, ["category", "label", "group", "tag"]);
+    if (rowSource === "generic") {
+      rows.push({
+        source: "generic",
+        email,
+        password: pickValue(item, ["password", "pass", "token", "app_password", "appPassword"]),
+        username: pickValue(item, ["username", "user", "mailbox"]),
+        mode: pickValue(item, ["mode", "provider", "type"]),
+        imap_host: pickValue(item, ["imap_host", "imapHost", "base_url", "baseUrl", "api_url", "apiUrl", "host"]),
+        imap_port: pickValue(item, ["imap_port", "imapPort", "port"]),
+        pop3_host: pickValue(item, ["pop3_host", "pop3Host"]),
+        pop3_port: pickValue(item, ["pop3_port", "pop3Port"]),
+        category,
+      });
+      return;
+    }
+    rows.push(rowSource === "temp" ? {
+      source: "temp",
+      email,
+      jwt: pickValue(item, ["jwt", "token", "access_token", "credential"]),
+      base_url: normalizeTempWorkerUrl(pickValue(item, ["base_url", "baseUrl", "api", "api_url", "worker_url"])),
+      site_password: pickValue(item, ["site_password", "sitePassword", "x-custom-auth", "custom_auth"]),
+      category,
+    } : {
+      source: "microsoft",
+      email,
+      password: pickValue(item, ["password", "pass"]),
+      client_id: pickValue(item, ["client_id", "clientId"]),
+      refresh_token: pickValue(item, ["refresh_token", "refreshToken"]),
+      category,
+    });
+  });
+  return { rows: rows.filter(Boolean), errors };
+}
+
+function parseGenericParts(parts, email) {
+  const password = parts[1] || "";
+  const third = parts[2] || "";
+  const fourth = parts[3] || "";
+  const fifth = parts[4] || "";
+  const sixth = parts[5] || "";
+  let mode = normalizeGenericMode(fourth && !/^\d+$/.test(fourth) ? fourth : fifth);
+  let host = third && !/^\d+$/.test(third) ? third : "";
+  let category = "";
+  let username = "";
+  if (mode === "auto" && isGenericApiMode(third)) {
+    mode = normalizeGenericMode(third);
+    host = "";
+  }
+  if (/^\d+$/.test(fourth)) {
+    category = isGenericApiMode(fifth) ? sixth : fifth;
+  } else if (isGenericApiMode(mode)) {
+    username = mode === "luckmail" ? fifth : "";
+    category = mode === "luckmail" ? sixth : fifth;
+  } else {
+    category = fifth;
+  }
+  return {
+    source: "generic",
+    email,
+    password,
+    username,
+    mode,
+    imap_host: mode === "pop3" ? "" : host,
+    imap_port: /^\d+$/.test(fourth) ? Number(fourth) : 993,
+    pop3_host: mode === "pop3" ? host : "",
+    pop3_port: /^\d+$/.test(fourth) ? Number(fourth) : 995,
+    category,
+  };
+}
+
+function parseLines(text, source) {
+  const structured = parseStructuredText(text, source);
+  if (structured) return structured;
+  const rows = [];
+  const errors = [];
+  String(text || "").split(/\r?\n/).forEach((line, index) => {
+    const clean = line.trim().replace(/^\ufeff/, "");
+    if (!clean || clean.startsWith("#")) return;
+    const parts = clean.includes("----")
+      ? clean.split("----").map((part) => part.trim())
+      : csvPartsFlexible(clean);
+    const email = parts[0] || "";
+    if (!email.includes("@")) {
+      errors.push(`第 ${index + 1} 行邮箱格式不对`);
+      return;
+    }
+    const looksMicrosoft = parts.length >= 4
+      && !looksLikeUrl(parts[2])
+      && !looksLikeJwt(parts[1])
+      && String(parts[3] || "").length > 20;
+    const rowSource = source === "auto" ? (looksMicrosoft ? "microsoft" : (looksLikeJwt(parts[1]) ? "temp" : "generic")) : source;
+    if (rowSource === "generic") {
+      rows.push(parseGenericParts(parts, email));
+      return;
+    }
+    rows.push(rowSource === "temp" ? {
+      source: "temp",
+      email,
+      jwt: parts[1] || "",
+      base_url: normalizeTempWorkerUrl(parts[2] || ""),
+      site_password: parts[3] || "",
+      category: parts[4] || "",
+    } : {
+      source: "microsoft",
+      email,
+      password: parts[1] || "",
+      client_id: parts[2] || "",
+      refresh_token: parts[3] || "",
+      category: parts[4] || "",
+    });
+  });
+  return { rows: rows.filter(Boolean), errors };
+}
+
+function pickupMailboxCopyLine(account) {
+  if (account.source === "temp") {
+    return [account.email, account.jwt || "", account.base_url || "", account.site_password || "", account.category || ""].join("----");
+  }
+  if (account.source === "generic") {
+    const mode = normalizeGenericMode(account.mode);
+    const host = mode === "pop3" ? account.pop3_host || "" : account.imap_host || "";
+    if (isGenericApiMode(mode)) {
+      if (mode === "luckmail" && account.username) {
+        return [account.email, account.password || "", mode, "", account.username, account.category || ""].join("----");
+      }
+      return [account.email, account.password || "", mode, "", account.category || ""].join("----");
+    }
+    if (host) {
+      if (mode && mode !== "auto") {
+        return [account.email, account.password || "", host, mode, account.category || ""].join("----");
+      }
+      const port = mode === "pop3" ? account.pop3_port || "" : account.imap_port || "";
+      return [account.email, account.password || "", host, port, account.category || ""].join("----");
+    }
+    if (account.category) {
+      return [account.email, account.password || "", "", "", account.category || ""].join("----");
+    }
+    return [account.email, account.password || ""].join("----");
+  }
+  return [account.email, account.password || "", account.client_id || "", account.refresh_token || "", account.category || ""].join("----");
+}
+
+function updatePickupImportPreview() {
+  if (!els.pickupImportPreview) return;
+  const source = els.pickupImportSource?.value || "auto";
+  const text = els.pickupImportText?.value || "";
+  const tempMode = source === "temp" || source === "auto";
+  if (els.pickupTempApiField) els.pickupTempApiField.hidden = !tempMode;
+  if (els.pickupTempSitePasswordField) els.pickupTempSitePasswordField.hidden = !tempMode;
+  if (els.pickupImportText) {
+    els.pickupImportText.placeholder = IMPORT_PLACEHOLDERS[source] || IMPORT_PLACEHOLDERS.auto;
+    els.pickupImportText.dataset.i18nOriginalPlaceholder = els.pickupImportText.placeholder;
+  }
+  if (!text.trim()) {
+    els.pickupImportPreview.className = "import-preview";
+    els.pickupImportPreview.textContent = "粘贴后会先预检格式。";
+    return;
+  }
+  const { rows, errors } = parseLines(text, source);
+  const microsoft = rows.filter((row) => row.source === "microsoft").length;
+  const temp = rows.filter((row) => row.source === "temp").length;
+  const generic = rows.filter((row) => row.source === "generic").length;
+  els.pickupImportPreview.className = `import-preview ${errors.length ? "warning" : "ok"}`;
+  els.pickupImportPreview.textContent = [
+    `识别 ${rows.length} 个邮箱`,
+    microsoft ? `Outlook ${microsoft}` : "",
+    temp ? `临时邮箱 ${temp}` : "",
+    generic ? `其他邮箱 ${generic}` : "",
+    errors.length ? `格式错误 ${errors.length}` : "",
+  ].filter(Boolean).join(" · ") || "没有识别到邮箱。";
+}
+
+function openPickupImportModal() {
+  if (!els.pickupImportModal) return;
+  if (els.pickupTempApi && !els.pickupTempApi.value.trim()) {
+    els.pickupTempApi.value = normalizeTempWorkerUrl(els.tempSyncApi?.value || "");
+  }
+  if (els.pickupTempSitePassword && !els.pickupTempSitePassword.value.trim()) {
+    els.pickupTempSitePassword.value = (els.tempSyncSitePassword?.value || "").trim();
+  }
+  els.pickupImportModal.hidden = false;
+  document.body.classList.add("modal-open");
+  updatePickupImportPreview();
+  setTimeout(() => els.pickupImportText?.focus(), 0);
+}
+
+function closePickupImportModal() {
+  if (!els.pickupImportModal) return;
+  els.pickupImportModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  if (els.pickupImportText) els.pickupImportText.value = "";
+  if (els.pickupImportFile) els.pickupImportFile.value = "";
+  if (els.pickupImportFileName) els.pickupImportFileName.textContent = "也可以直接粘贴到下面";
+  updatePickupImportPreview();
+}
+
+async function persistPickupImportedRows(rows) {
+  const microsoftRows = rows.filter((row) => row.source === "microsoft");
+  const tempRows = rows.filter((row) => row.source === "temp");
+  const genericRows = rows.filter((row) => row.source === "generic");
+  const results = [];
+  if (microsoftRows.length) {
+    const response = await fetch("/client-api/accounts/import-pickup", {
+      method: "POST",
+      headers: apiHeaders(),
+      body: JSON.stringify({
+        text: microsoftRows.map(pickupMailboxCopyLine).join("\n"),
+        replace_existing: true,
+      }),
+    });
+    const data = await readJsonResponse(response, "Outlook 取码导入失败");
+    results.push({ source: "microsoft", data });
+  }
+  if (tempRows.length) {
+    const response = await fetch("/client-api/temp-addresses/import", {
+      method: "POST",
+      headers: apiHeaders(),
+      body: JSON.stringify({
+        text: tempRows.map(pickupMailboxCopyLine).join("\n"),
+        base_url: normalizeTempWorkerUrl(els.pickupTempApi?.value || els.tempSyncApi?.value || ""),
+        site_password: String(els.pickupTempSitePassword?.value || els.tempSyncSitePassword?.value || "").trim(),
+      }),
+    });
+    const data = await readJsonResponse(response, "临时邮箱导入失败");
+    results.push({ source: "temp", data });
+  }
+  if (genericRows.length) {
+    const response = await fetch("/client-api/generic-accounts/import", {
+      method: "POST",
+      headers: apiHeaders(),
+      body: JSON.stringify({
+        text: genericRows.map(pickupMailboxCopyLine).join("\n"),
+      }),
+    });
+    const data = await readJsonResponse(response, "其他邮箱导入失败");
+    results.push({ source: "generic", data });
+  }
+  return results;
 }
 
 function sourceBadgeTone(value) {
@@ -1590,11 +1957,40 @@ function formatPhoneTime(value) {
   });
 }
 
+function renderPhoneBindingList() {
+  if (!els.phoneBindingList) return;
+  if (!state.phonePool.length) {
+    els.phoneBindingList.innerHTML = '<div class="phone-pool-empty">还没有手机号绑定关系。</div>';
+    return;
+  }
+  const rows = [...state.phonePool].sort((a, b) => {
+    const aBound = a.account_email ? 0 : 1;
+    const bBound = b.account_email ? 0 : 1;
+    if (aBound !== bBound) return aBound - bBound;
+    return String(a.phone || "").localeCompare(String(b.phone || ""));
+  });
+  els.phoneBindingList.innerHTML = rows.map((item) => {
+    const mode = item.mode === "bound" ? "1对1" : "批量";
+    const email = item.account_email || "未绑定邮箱";
+    const hint = item.last_code
+      ? `最近验证码 ${item.last_code}${item.last_checked_at ? ` · ${formatPhoneTime(item.last_checked_at)}` : ""}`
+      : (item.status === "error" ? "取码失败" : "等待取码");
+    return `
+      <div class="phone-binding-row">
+        <strong>${escapeHtml(item.phone)}</strong>
+        <span>${escapeHtml(email)}</span>
+        <em>${escapeHtml(mode)} · ${escapeHtml(hint)}</em>
+      </div>
+    `;
+  }).join("");
+}
+
 
 function renderPhonePool() {
   if (!els.phonePoolList) return;
   if (!state.phonePool.length) {
     els.phonePoolList.innerHTML = '<div class="phone-pool-empty">还没有长效手机。</div>';
+    renderPhoneBindingList();
     renderSelectedPhoneCodePanel();
     return;
   }
@@ -1618,6 +2014,7 @@ function renderPhonePool() {
       </div>
     `;
   }).join("");
+  renderPhoneBindingList();
   renderSelectedPhoneCodePanel();
 }
 
@@ -2692,6 +3089,76 @@ async function exportResults(format) {
   });
 }
 
+async function manualUploadCpaResults() {
+  const baseUrl = els.cpaBaseUrl ? els.cpaBaseUrl.value.trim() : "";
+  const managementKey = els.cpaManagementKey ? els.cpaManagementKey.value.trim() : "";
+  if (!baseUrl || !managementKey) {
+    setCpaSyncStatus("请先填写 CPA 地址和管理密钥", "error");
+    toast("请先填写 CPA 地址和管理密钥");
+    return;
+  }
+  let rows = selectedQueueRows().map((row) => ({ row, authFile: row.auth_file })).filter((item) => item.authFile);
+  if (!rows.length) {
+    rows = state.queue.map((row) => ({ row, authFile: row.auth_file })).filter((item) => item.authFile);
+  }
+  if (!rows.length) {
+    rows = await savedRefreshRows();
+  }
+  if (!rows.length) {
+    setCpaSyncStatus("没有可上传的凭证结果", "warning");
+    toast("没有可上传的凭证结果");
+    return;
+  }
+  if (els.manualUploadCpa) els.manualUploadCpa.disabled = true;
+  setCpaSyncStatus(`准备上传 ${rows.length} 个账号`, "running");
+  let success = 0;
+  let failed = 0;
+  try {
+    for (const item of rows) {
+      const email = item.row.email || item.authFile?.email || "";
+      const name = item.row.cpa_name || item.row.name || email || "账号";
+      setCpaSyncStatus(`正在上传 ${name}`, "running");
+      const response = await fetch("/client-api/cpa/replace-auth", {
+        method: "POST",
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          base_url: baseUrl,
+          management_key: managementKey,
+          name,
+          auth_file: item.authFile,
+        }),
+      });
+      const data = await readJsonResponse(response, "CPA 上传失败");
+      if (!data.success) {
+        const details = parseErrorPayload(data, "CPA 上传失败");
+        failed += 1;
+        addLog(`${email || name} ${details.error || "CPA 上传失败"}`, "warning", {
+          step: "upload",
+          email,
+          error_code: details.error_code || "upload_failed",
+        });
+        continue;
+      }
+      success += 1;
+      addLog(`${email || name} 已手动同步到 CPA`, "success", {
+        step: "upload",
+        email,
+      });
+    }
+    const tone = failed ? (success ? "warning" : "error") : "success";
+    setCpaSyncStatus(`手动上传完成：成功 ${success}，失败 ${failed}`, tone);
+    toast(failed ? `上传完成：成功 ${success}，失败 ${failed}` : `已上传 ${success} 个账号`);
+  } catch (error) {
+    failed += 1;
+    const message = error?.message || "CPA 上传失败";
+    setCpaSyncStatus(message, "error");
+    addLog(message, "error", { step: "upload", error_code: "upload_failed" });
+    toast(message);
+  } finally {
+    if (els.manualUploadCpa) els.manualUploadCpa.disabled = false;
+  }
+}
+
 function renderAll() {
   renderSources();
   renderQueue();
@@ -2854,40 +3321,66 @@ async function syncTempCredentialsForQueue() {
 }
 
 async function importPickupCredentials() {
-  const text = els.pickupImportText ? els.pickupImportText.value.trim() : "";
-  if (!text) {
-    toast("请先粘贴 Outlook 四段取码资料");
-    addLog("Outlook 取码导入为空", "error", { error_code: "pickup_import_empty" });
+  const source = els.pickupImportSource?.value || "auto";
+  const text = els.pickupImportText?.value.trim() || "";
+  const { rows, errors } = parseLines(text, source);
+  if (!rows.length) {
+    toast(errors[0] || "没有识别到可导入的邮箱");
+    addLog("快捷导入为空", "error", { error_code: "pickup_import_empty" });
     return;
   }
-  const oldText = els.importPickupCredentials.textContent;
-  els.importPickupCredentials.disabled = true;
-  els.importPickupCredentials.textContent = "导入中";
+  const importCategory = new Date().toISOString().slice(0, 10);
+  rows.forEach((row) => {
+    row.category = String(row.category || "").trim() || importCategory;
+  });
+  const tempBaseUrl = normalizeTempWorkerUrl(els.pickupTempApi?.value || els.tempSyncApi?.value || "");
+  const tempSitePassword = String(els.pickupTempSitePassword?.value || els.tempSyncSitePassword?.value || "").trim();
+  rows.filter((row) => row.source === "temp").forEach((row) => {
+    row.base_url = normalizeTempWorkerUrl(row.base_url || tempBaseUrl);
+    row.site_password = row.site_password || tempSitePassword;
+  });
+  const oldText = els.confirmPickupImport?.textContent || "导入并同步";
+  if (els.confirmPickupImport) {
+    els.confirmPickupImport.disabled = true;
+    els.confirmPickupImport.textContent = "导入中";
+  }
   try {
-    const response = await fetch("/client-api/accounts/import-pickup", {
-      method: "POST",
-      headers: apiHeaders(),
-      body: JSON.stringify({
-        text,
-        replace_existing: true,
-      }),
-    });
-    const data = await readJsonResponse(response, "Outlook 取码导入失败");
-    const syncedAccounts = (data.accounts || []).map((item) => normalizeServerAccount(item, "microsoft")).filter(Boolean);
-    mergeServerAccountsSnapshot(syncedAccounts);
-    saveJson(STORAGE_KEYS.accounts, state.accounts);
-    els.pickupImportText.value = "";
+    const results = await persistPickupImportedRows(rows);
+    if (tempBaseUrl && els.tempSyncApi) els.tempSyncApi.value = tempBaseUrl;
+    if (tempBaseUrl && els.pickupTempApi) els.pickupTempApi.value = tempBaseUrl;
+    if (tempSitePassword && els.tempSyncSitePassword) els.tempSyncSitePassword.value = tempSitePassword;
+    if (tempSitePassword && els.pickupTempSitePassword) els.pickupTempSitePassword.value = tempSitePassword;
+    saveSettings();
+    try {
+      await syncAccountsFromServer({ quiet: true });
+    } catch (syncError) {
+      addLog(`导入已写入服务器，但回读同步失败：${syncError.message || "unknown"}`, "warning", {
+        error_code: "pickup_import_failed",
+      });
+    }
     renderAll();
-    toast(`导入 Outlook：新增 ${data.imported || 0}，更新 ${data.updated || 0}`);
-    addLog(`Outlook 取码导入完成：新增 ${data.imported || 0}，更新 ${data.updated || 0}`, "success");
-    (data.errors || []).slice(0, 5).forEach((item) => addLog(item, "warning", { error_code: "pickup_import_failed" }));
+    closePickupImportModal();
+    const summary = results.map((item) => {
+      const imported = Number(item.data?.imported || 0);
+      const updated = Number(item.data?.updated || 0);
+      const label = item.source === "microsoft" ? "Outlook" : item.source === "temp" ? "临时邮箱" : "其他邮箱";
+      return `${label} 新增 ${imported} / 更新 ${updated}`;
+    }).join("，");
+    toast(`已导入 ${rows.length} 个邮箱`);
+    addLog(`快捷导入完成：${summary || `共 ${rows.length} 个邮箱`}`, "success");
+    errors.slice(0, 5).forEach((item) => addLog(item, "warning", { error_code: "pickup_import_failed" }));
+    results.flatMap((item) => item.data?.errors || []).slice(0, 5).forEach((item) => {
+      addLog(String(item), "warning", { error_code: "pickup_import_failed" });
+    });
   } catch (error) {
-    const details = error.details || { error: error.message || "Outlook 取码导入失败", error_code: "pickup_import_failed" };
+    const details = error.details || { error: error.message || "快捷导入失败", error_code: "pickup_import_failed" };
     addLog(formatJobError(details), "error", { error_code: details.error_code || "pickup_import_failed" });
-    toast("导入失败");
+    toast(details.error || "导入失败");
   } finally {
-    els.importPickupCredentials.disabled = false;
-    els.importPickupCredentials.textContent = oldText;
+    if (els.confirmPickupImport) {
+      els.confirmPickupImport.disabled = false;
+      els.confirmPickupImport.textContent = oldText;
+    }
   }
 }
 
@@ -3068,14 +3561,38 @@ els.exportSub2.addEventListener("click", () => exportResults("sub2"));
 if (els.syncTempCredentials) {
   els.syncTempCredentials.addEventListener("click", syncTempCredentialsForQueue);
 }
-if (els.importPickupCredentials) {
-  els.importPickupCredentials.addEventListener("click", importPickupCredentials);
+if (els.openPickupImportModal) {
+  els.openPickupImportModal.addEventListener("click", openPickupImportModal);
+}
+if (els.openPickupImportModalInline) {
+  els.openPickupImportModalInline.addEventListener("click", openPickupImportModal);
+}
+if (els.pickupImportSource) {
+  els.pickupImportSource.addEventListener("change", updatePickupImportPreview);
+}
+if (els.pickupImportText) {
+  els.pickupImportText.addEventListener("input", updatePickupImportPreview);
+}
+if (els.pickupImportFile) {
+  els.pickupImportFile.addEventListener("change", async () => {
+    const file = els.pickupImportFile.files?.[0];
+    if (!file) return;
+    els.pickupImportText.value = await file.text();
+    if (els.pickupImportFileName) els.pickupImportFileName.textContent = file.name;
+    updatePickupImportPreview();
+  });
+}
+if (els.confirmPickupImport) {
+  els.confirmPickupImport.addEventListener("click", importPickupCredentials);
 }
 if (els.addPhoneEntry) {
   els.addPhoneEntry.addEventListener("click", addOrUpdatePhoneEntry);
 }
 if (els.importPhoneBatch) {
   els.importPhoneBatch.addEventListener("click", importPhoneBatchEntries);
+}
+if (els.manualUploadCpa) {
+  els.manualUploadCpa.addEventListener("click", manualUploadCpaResults);
 }
 if (els.saveManualPhoneCode) {
   els.saveManualPhoneCode.addEventListener("click", saveManualPhoneCodeForSelected);
@@ -3086,8 +3603,13 @@ if (els.pollSelectedPhone) {
 els.closeManualCodeModal?.addEventListener("click", closeManualCodeDialog);
 els.cancelManualCodeModal?.addEventListener("click", closeManualCodeDialog);
 els.confirmManualCodeModal?.addEventListener("click", submitManualCodeDialog);
+els.closePickupImportModal?.addEventListener("click", closePickupImportModal);
+els.cancelPickupImportModal?.addEventListener("click", closePickupImportModal);
 els.manualCodeModal?.addEventListener("click", (event) => {
   if (event.target === els.manualCodeModal) closeManualCodeDialog();
+});
+els.pickupImportModal?.addEventListener("click", (event) => {
+  if (event.target === els.pickupImportModal) closePickupImportModal();
 });
 els.manualCodeModalInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -3137,5 +3659,6 @@ els.clearLogs.addEventListener("click", () => {
 });
 
 renderAll();
+updatePickupImportPreview();
 syncAccountsFromServer();
 syncRefreshResults();
