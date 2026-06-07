@@ -343,5 +343,5 @@
     if (!event.target?.closest?.(".language-switch") || !lastDashboardData) return;
     window.setTimeout(() => render(lastDashboardData), 80);
   });
-  loadDashboard();
+  window.GptAccountManagerRuntime.afterFirstPaint(loadDashboard);
 })();

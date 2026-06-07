@@ -25,6 +25,10 @@
         --warning: #8a5a14;
         --shadow: 0 16px 44px rgba(74, 108, 157, 0.16);
         --radius: 8px;
+        --control-h-sm: 30px;
+        --control-h-md: 32px;
+        --control-pad-x: 10px;
+        --control-gap: 8px;
         --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         --sans: "Inter", "Avenir Next", "Helvetica Neue", "PingFang SC", "Noto Sans SC", sans-serif;
       }
@@ -299,9 +303,9 @@
       }
 
       .segmented button {
-        min-height: 30px;
+        min-height: var(--control-h-md);
         min-width: 0;
-        padding: 0 8px;
+        padding: 0 var(--control-pad-x);
         border-radius: 6px;
         background: transparent;
         color: var(--muted);
@@ -319,7 +323,7 @@
       .actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: var(--control-gap);
         justify-content: flex-end;
       }
 
@@ -327,8 +331,8 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 30px;
-        padding: 5px 8px;
+        min-height: var(--control-h-md);
+        padding: 0 var(--control-pad-x);
         border-radius: var(--radius);
         cursor: pointer;
         line-height: 1.15;
@@ -512,7 +516,7 @@
       .input-actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: var(--control-gap);
         justify-content: space-between;
         margin-bottom: 12px;
       }

@@ -8,6 +8,7 @@
   const lastApplied = new WeakMap();
   let memoryLang = DEFAULT_LANG;
   let storageWriteFailed = false;
+  const afterFirstPaint = window.GptAccountManagerRuntime?.afterFirstPaint || ((callback) => window.setTimeout(callback, 0));
 
   const en = {
     "GPT账号管理助手": "GPT Account Manager",
@@ -543,6 +544,7 @@
 
   let applying = false;
   let scheduled = false;
+  let translatedOnce = false;
 
   function applyI18n(root = document) {
     if (applying || !document.body) return;
@@ -556,12 +558,16 @@
     const originalTitle = document.documentElement.dataset.i18nOriginalTitle || document.title;
     document.title = translate(originalTitle, lang, titleMap);
     ensureSwitcher();
-    translateTree(root === document ? document.body : root, lang);
+    if (lang === TARGET_LANG || translatedOnce) {
+      translateTree(root === document ? document.body : root, lang);
+      translatedOnce = true;
+    }
     ensureSwitcher();
     applying = false;
   }
 
   function scheduleApply() {
+    if (getLanguage() !== TARGET_LANG && !translatedOnce) return;
     if (scheduled || applying) return;
     scheduled = true;
     window.setTimeout(() => {
@@ -571,7 +577,10 @@
   }
 
   function boot() {
-    applyI18n(document);
+    ensureSwitcher();
+    if (getLanguage() === TARGET_LANG) {
+      afterFirstPaint(() => applyI18n(document));
+    }
     const observer = new MutationObserver(scheduleApply);
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     window.GptAccountManagerI18n = {

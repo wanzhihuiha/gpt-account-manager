@@ -66,10 +66,6 @@
       <aside class="sidebar">
         <section class="panel mailbox-panel">
           <div class="panel-head compact mailbox-title-head">
-            <div>
-              <p class="eyebrow">Mailbox list</p>
-              <h2>邮箱清单</h2>
-            </div>
             <div class="mailbox-source-filter" id="mailboxSourceFilter" aria-label="邮箱来源筛选">
               <button type="button" class="active" data-source="all" aria-pressed="true"><span>全部</span><strong id="mailboxTotal">0</strong></button>
               <button type="button" data-source="microsoft" aria-pressed="false"><span>Outlook</span><strong id="msCount">0</strong></button>
@@ -86,7 +82,7 @@
           >
             <span class="mailbox-controls-toggle-copy">
               <strong>工具区</strong>
-              <em>展开搜索、导入、分组与分页</em>
+              <em>展开搜索、导入与分组</em>
             </span>
             <span id="mailboxControlsToggleText">展开</span>
           </button>
@@ -109,20 +105,30 @@
               <button id="groupByImportDateBtn" type="button">按导入时间分组</button>
               <button id="deleteCategoryBtn" class="ghost danger" type="button">删除分组</button>
             </div>
+          </div>
+          <div id="mailboxList" class="mailbox-list empty">暂无邮箱</div>
+          <div class="mailbox-list-footer">
+            <label class="mailbox-select-current-page">
+              <input id="mailboxSelectPage" type="checkbox">
+              <span>全选本页</span>
+            </label>
             <div class="mailbox-pager">
               <select id="mailboxPageSize">
                 <option value="10">10 / 页</option>
+                <option value="15">15 / 页</option>
                 <option value="20" selected>20 / 页</option>
                 <option value="50">50 / 页</option>
+                <option value="100">100 / 页</option>
               </select>
               <button id="mailboxPrevPage" type="button" aria-label="上一页">‹</button>
               <span id="mailboxPageText">1 / 1</span>
               <button id="mailboxNextPage" type="button" aria-label="下一页">›</button>
             </div>
           </div>
-          <div id="mailboxList" class="mailbox-list empty">暂无邮箱</div>
         </section>
       </aside>
+
+      <div class="workspace-resizer" id="sidebarResizer" role="separator" aria-label="调整邮箱清单宽度" aria-orientation="vertical" tabindex="0"></div>
 
       <section class="main-panel">
         <div class="search-strip" id="mailSearchStrip" hidden>
@@ -230,7 +236,7 @@
           <section class="mail-list-panel">
             <div class="section-head">
               <h2>邮件列表</h2>
-              <div class="pager-tools">
+              <div class="mail-filter-tools">
                 <select id="typeFilter" aria-label="邮件类型">
                   <option value="all">全部类型</option>
                   <option value="verification">验证码</option>
@@ -240,19 +246,31 @@
                   <option value="banned">封禁</option>
                   <option value="other">其他</option>
                 </select>
-                <select id="pageSize">
-                  <option value="10">10 / 页</option>
-                  <option value="20" selected>20 / 页</option>
-                  <option value="50">50 / 页</option>
-                </select>
-                <button id="prevPage" type="button" aria-label="上一页">‹</button>
-                <span id="pageText">1 / 1</span>
-                <button id="nextPage" type="button" aria-label="下一页">›</button>
                 <button id="deleteFilteredBtn" class="ghost danger" type="button" disabled>批量删除</button>
               </div>
             </div>
             <div id="mailList" class="mail-list empty">导入邮箱后点击刷新邮件</div>
+            <div class="mail-list-footer">
+              <label class="mail-select-current-page">
+                <input id="mailSelectPage" type="checkbox">
+                <span>全选本页</span>
+              </label>
+              <div class="pager-tools mail-pager-tools">
+                <select id="pageSize">
+                  <option value="10">10 / 页</option>
+                  <option value="15">15 / 页</option>
+                  <option value="20" selected>20 / 页</option>
+                  <option value="50">50 / 页</option>
+                  <option value="100">100 / 页</option>
+                </select>
+                <button id="prevPage" type="button" aria-label="上一页">‹</button>
+                <span id="pageText">1 / 1</span>
+                <button id="nextPage" type="button" aria-label="下一页">›</button>
+              </div>
+            </div>
           </section>
+
+          <div class="workspace-resizer mail-resizer" id="mailListResizer" role="separator" aria-label="调整邮件列表宽度" aria-orientation="vertical" tabindex="0"></div>
 
           <section class="mail-detail-panel">
             <div class="section-head">

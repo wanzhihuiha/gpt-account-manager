@@ -21,6 +21,11 @@
         --warning: #8a5a14;
         --shadow: 0 16px 44px rgba(74, 108, 157, 0.16);
         --radius: 8px;
+        --control-h-sm: 30px;
+        --control-h-md: 32px;
+        --control-h-lg: 36px;
+        --control-pad-x: 10px;
+        --control-gap: 8px;
         --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
         --sans: "Inter", "Avenir Next", "Helvetica Neue", "PingFang SC", "Noto Sans SC", sans-serif;
       }
@@ -313,10 +318,10 @@
 
       .form-field input {
         width: 100%;
-        min-height: 28px;
+        min-height: var(--control-h-md);
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        padding: 5px 8px;
+        padding: 0 var(--control-pad-x);
         background: rgba(255, 255, 255, 0.82);
         color: var(--text);
         outline: 0;
@@ -331,7 +336,7 @@
       .actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 6px;
+        gap: var(--control-gap);
         justify-content: flex-end;
       }
 
@@ -371,11 +376,11 @@
       }
 
       .button {
-        min-height: 28px;
+        min-height: var(--control-h-md);
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 4px 7px;
+        padding: 0 var(--control-pad-x);
         border-radius: var(--radius);
         cursor: pointer;
         line-height: 1.15;
@@ -439,10 +444,10 @@
 
       .auto-fields input {
         width: 82px;
-        min-height: 34px;
+        min-height: var(--control-h-md);
         border: 1px solid var(--line);
         border-radius: var(--radius);
-        padding: 6px 8px;
+        padding: 0 var(--control-pad-x);
         background: rgba(255, 255, 255, 0.82);
         color: var(--text);
       }
@@ -749,13 +754,13 @@
       }
 
       .compact-field input {
-        min-height: 36px;
+        min-height: var(--control-h-lg);
       }
 
       .repair-actions {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+        gap: var(--control-gap);
       }
 
       .manual-import {
@@ -775,7 +780,7 @@
       .manual-import-actions {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--control-gap);
         flex-wrap: wrap;
         justify-content: flex-end;
         margin-top: 6px;
@@ -784,9 +789,9 @@
       .manual-file {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        min-height: 28px;
-        padding: 4px 8px;
+        gap: var(--control-gap);
+        min-height: var(--control-h-md);
+        padding: 0 var(--control-pad-x);
         border: 1px dashed var(--line-strong);
         border-radius: var(--radius);
         background: rgba(255, 255, 255, 0.58);
@@ -974,9 +979,9 @@
       }
 
       .config-grid .form-field input {
-        height: 30px !important;
-        min-height: 28px !important;
-        padding: 4px 8px !important;
+        height: var(--control-h-md) !important;
+        min-height: var(--control-h-md) !important;
+        padding: 0 var(--control-pad-x) !important;
         line-height: 1.2 !important;
         box-sizing: border-box !important;
       }
@@ -993,8 +998,8 @@
       }
 
       .manual-file.is-button {
-        min-height: 28px !important;
-        padding: 4px 8px !important;
+        min-height: var(--control-h-md) !important;
+        padding: 0 var(--control-pad-x) !important;
       }
     </style>
     <link rel="stylesheet" href="/forge-theme.css?v={{APP_VERSION}}" />

@@ -3660,5 +3660,7 @@ els.clearLogs.addEventListener("click", () => {
 
 renderAll();
 updatePickupImportPreview();
-syncAccountsFromServer();
-syncRefreshResults();
+window.GptAccountManagerRuntime.afterFirstPaint(() => {
+  syncAccountsFromServer();
+  syncRefreshResults();
+});

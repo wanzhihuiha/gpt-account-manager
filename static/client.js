@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   tempSettings: "ctgptm.mail.tempSettings",
   workspaceId: "ctgptm.workspaceId",
   mailboxControlsCollapsed: "ctgptm.mail.mailboxControlsCollapsed.v2",
+  layoutPrefs: "ctgptm.mail.layoutPrefs.v1",
 };
 const DEFAULT_TEMP_WORKER_URL = "";
 const LEGACY_TEMP_WORKER_URLS = new Set([]);
@@ -37,7 +38,8 @@ function accountSourceGroup(account) {
 
 const EMPTY_CATEGORY_LABEL = "未分组";
 const LEGACY_SEEDED_CATEGORIES = new Set(["默认", "客户", "注册", "账单"]);
-const RESERVED_CATEGORY_NAMES = new Set(["已封禁"]);
+const AUTO_BANNED_CATEGORY = "已封禁";
+const RESERVED_CATEGORY_NAMES = new Set([AUTO_BANNED_CATEGORY]);
 const LEGACY_CATEGORY_NAMES = new Set([
   "默认",
   "客户",
@@ -151,7 +153,11 @@ const els = {
   mailboxCategoryFilter: document.querySelector("#mailboxCategoryFilter"),
   mailboxSearch: document.querySelector("#mailboxSearch"),
   mailboxList: document.querySelector("#mailboxList"),
+  workspace: document.querySelector(".workspace"),
+  sidebar: document.querySelector(".sidebar"),
+  sidebarResizer: document.querySelector("#sidebarResizer"),
   mailboxPageSize: document.querySelector("#mailboxPageSize"),
+  mailboxSelectPage: document.querySelector("#mailboxSelectPage"),
   mailboxPrevPage: document.querySelector("#mailboxPrevPage"),
   mailboxNextPage: document.querySelector("#mailboxNextPage"),
   mailboxPageText: document.querySelector("#mailboxPageText"),
@@ -194,8 +200,11 @@ const els = {
   nextPage: document.querySelector("#nextPage"),
   pageText: document.querySelector("#pageText"),
   deleteFilteredBtn: document.querySelector("#deleteFilteredBtn"),
+  mailSelectPage: document.querySelector("#mailSelectPage"),
   mailList: document.querySelector("#mailList"),
   mailWorkspace: document.querySelector("#mailWorkspace"),
+  mailListPanel: document.querySelector(".mail-list-panel"),
+  mailListResizer: document.querySelector("#mailListResizer"),
   mailDetail: document.querySelector("#mailDetail"),
   copyCodeBtn: document.querySelector("#copyCodeBtn"),
   pushRefreshBtn: document.querySelector("#pushRefreshBtn"),
@@ -216,10 +225,17 @@ const normalizedAccounts = normalizeStoredAccounts(storedAccounts);
 if (JSON.stringify(storedAccounts) !== JSON.stringify(normalizedAccounts)) {
   saveJson(STORAGE_KEYS.accounts, normalizedAccounts);
 }
+const storedCategories = loadJson(STORAGE_KEYS.categories, []);
+const normalizedCategories = normalizeStoredCategories(storedCategories)
+  .filter((category) => category !== AUTO_BANNED_CATEGORY
+    || normalizedAccounts.some((account) => account.category === AUTO_BANNED_CATEGORY));
+if (JSON.stringify(storedCategories) !== JSON.stringify(normalizedCategories)) {
+  saveJson(STORAGE_KEYS.categories, normalizedCategories);
+}
 
 const state = {
   accounts: normalizedAccounts,
-  categories: normalizeStoredCategories(loadJson(STORAGE_KEYS.categories, [])),
+  categories: normalizedCategories,
   messages: [],
   messageTotal: 0,
   messagesLoading: false,
@@ -227,6 +243,7 @@ const state = {
   abnormalRows: normalizeStoredAbnormalRows(loadJson(STORAGE_KEYS.abnormalRows, [])),
   selectedAbnormal: new Set(),
   selected: new Set(),
+  selectedMessages: new Set(),
   activeMessageKey: "",
   activeMailboxId: "",
   activeMailboxEmail: "",
@@ -239,6 +256,7 @@ const state = {
   mailboxPage: 1,
   lastFetchMessageCount: 0,
   mailboxControlsCollapsed: loadJson(STORAGE_KEYS.mailboxControlsCollapsed, true) !== false,
+  layoutPrefs: normalizeLayoutPrefs(loadJson(STORAGE_KEYS.layoutPrefs, {})),
 };
 
 const cpaSettings = loadJson(STORAGE_KEYS.cpaSettings, {});
@@ -286,6 +304,97 @@ function saveJson(key, value) {
     }
     throw error;
   }
+}
+
+function clampNumber(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return min;
+  return Math.min(max, Math.max(min, number));
+}
+
+function normalizeLayoutPrefs(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const sidebarWidth = Number(raw.sidebarWidth);
+  const mailListWidth = Number(raw.mailListWidth);
+  return {
+    sidebarWidth: Number.isFinite(sidebarWidth) ? clampNumber(sidebarWidth, 220, 520) : 0,
+    mailListWidth: Number.isFinite(mailListWidth) ? clampNumber(mailListWidth, 220, 620) : 0,
+  };
+}
+
+function saveLayoutPrefs() {
+  saveJson(STORAGE_KEYS.layoutPrefs, state.layoutPrefs);
+}
+
+function applyLayoutPrefs() {
+  if (state.layoutPrefs.sidebarWidth) {
+    document.documentElement.style.setProperty("--sidebar-width", `${state.layoutPrefs.sidebarWidth}px`);
+  }
+  if (state.layoutPrefs.mailListWidth) {
+    document.documentElement.style.setProperty("--mail-list-width", `${state.layoutPrefs.mailListWidth}px`);
+  }
+}
+
+function setupColumnResizer({ handle, container, panel, cssVar, stateKey, min, maxRatio, maxFixed }) {
+  if (!handle || !container || !panel) return;
+  const widthMax = () => Math.max(min, Math.min(maxFixed, container.getBoundingClientRect().width * maxRatio));
+  const setWidth = (value) => {
+    const next = Math.round(clampNumber(value, min, widthMax()));
+    state.layoutPrefs[stateKey] = next;
+    document.documentElement.style.setProperty(cssVar, `${next}px`);
+    return next;
+  };
+  handle.addEventListener("pointerdown", (event) => {
+    if (window.matchMedia("(max-width: 920px)").matches) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = panel.getBoundingClientRect().width;
+    document.body.classList.add("is-resizing-layout");
+    handle.setPointerCapture?.(event.pointerId);
+
+    const onMove = (moveEvent) => {
+      setWidth(startWidth + moveEvent.clientX - startX);
+    };
+    const onUp = () => {
+      document.body.classList.remove("is-resizing-layout");
+      saveLayoutPrefs();
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+  });
+  handle.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const current = state.layoutPrefs[stateKey] || panel.getBoundingClientRect().width;
+    setWidth(current + (event.key === "ArrowRight" ? 20 : -20));
+    saveLayoutPrefs();
+  });
+}
+
+function initResizableLayouts() {
+  applyLayoutPrefs();
+  setupColumnResizer({
+    handle: els.sidebarResizer,
+    container: els.workspace,
+    panel: els.sidebar,
+    cssVar: "--sidebar-width",
+    stateKey: "sidebarWidth",
+    min: 220,
+    maxRatio: 0.42,
+    maxFixed: 520,
+  });
+  setupColumnResizer({
+    handle: els.mailListResizer,
+    container: els.mailWorkspace,
+    panel: els.mailListPanel,
+    cssVar: "--mail-list-width",
+    stateKey: "mailListWidth",
+    min: 220,
+    maxRatio: 0.55,
+    maxFixed: 620,
+  });
 }
 
 function applyMailboxControlsState() {
@@ -585,6 +694,9 @@ function applyFetchDiagnostics(results) {
     });
     if (!account) return;
     Object.assign(account, diagnostic);
+    if (account.category === AUTO_BANNED_CATEGORY && !accountHasCurrentBanSignal(account)) {
+      account.category = "";
+    }
     changed = true;
   });
   if (changed) saveJson(STORAGE_KEYS.accounts, state.accounts);
@@ -634,6 +746,24 @@ function isAllowedCategory(value) {
   if (RESERVED_CATEGORY_NAMES.has(clean)) return true;
   if (isImportDateCategory(clean)) return true;
   return !LEGACY_CATEGORY_NAMES.has(clean.toLowerCase());
+}
+
+function accountHasCurrentBanSignal(account) {
+  const haystack = [
+    account?.last_status,
+    account?.last_error,
+    account?.last_error_code,
+    account?.last_error_label,
+    account?.last_error_hint,
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+  return /\baccount_banned\b|\baccess\s+deactivated\b|\baccount\s+(deactivated|disabled|banned|suspended)\b|deleted\s+or\s+deactivated|\bbanned\b|\bdeactivated\b|\bdisabled\b|\bsuspended\b|账号.*(封禁|停用|禁用)|封禁|停用|禁用|已停用/.test(haystack);
+}
+
+function normalizeAccountCategory(value, account = {}) {
+  const clean = String(value || "").trim();
+  if (clean === "默认") return "";
+  if (clean === AUTO_BANNED_CATEGORY && !accountHasCurrentBanSignal(account)) return "";
+  return clean;
 }
 
 function sortableTime(value) {
@@ -733,7 +863,7 @@ function normalizeStoredAccount(account) {
       refresh_token: "",
       jwt: "",
       site_password: "",
-      category: account.category === "默认" ? "" : (payload.category || ""),
+      category: normalizeAccountCategory(payload.category, account),
       selected: account.selected !== false,
     };
   }
@@ -772,7 +902,7 @@ function normalizeStoredAccount(account) {
       password: "",
       client_id: "",
       refresh_token: "",
-      category: account.category === "默认" ? "" : (account.category || ""),
+      category: normalizeAccountCategory(account.category, account),
       selected: account.selected !== false,
     };
   }
@@ -782,7 +912,7 @@ function normalizeStoredAccount(account) {
     source: "microsoft",
     service: account.service || "Outlook",
     email,
-    category: account.category === "默认" ? "" : (account.category || ""),
+    category: normalizeAccountCategory(account.category, account),
     selected: account.selected !== false,
   };
 }
@@ -948,7 +1078,7 @@ function normalizeServerMailbox(item, source) {
   const email = String(item?.email || "").trim();
   if (!email) return null;
   const status = item?.last_status || "idle";
-  const category = String(item?.label || item?.category || "").trim();
+  const category = normalizeAccountCategory(item?.label || item?.category || "", { ...item, last_status: status });
   if (source === "generic") {
     return normalizeStoredAccount({
       id: `generic:${email.toLowerCase()}`,
@@ -1044,7 +1174,7 @@ function mergeServerAccountsSnapshot(items) {
         pop3_host: item.pop3_host || existing.pop3_host || "",
         pop3_port: item.pop3_port || existing.pop3_port || 995,
         base_url: item.base_url || existing.base_url || "",
-        category: item.category || existing.category || "",
+        category: normalizeAccountCategory(item.category || existing.category || "", { ...existing, ...item }),
         updated_at: item.updated_at || existing.updated_at || new Date().toISOString(),
       });
       updated += 1;
@@ -1379,38 +1509,12 @@ function selectedMailTypeLabel() {
   return value === "all" ? "" : (TYPE_LABELS[value] || value);
 }
 
-function markAccountBanned(email) {
-  const normalizedEmail = String(email || "").toLowerCase();
-  if (!normalizedEmail) return false;
-  let changed = false;
-  state.accounts.forEach((account) => {
-    if (String(account.email || "").toLowerCase() === normalizedEmail && account.category !== "已封禁") {
-      account.category = "已封禁";
-      changed = true;
-    }
-  });
-  if (changed) {
-    ensureCategory("已封禁");
-    saveJson(STORAGE_KEYS.accounts, state.accounts);
-    saveJson(STORAGE_KEYS.categories, state.categories);
-  }
-  return changed;
-}
-
 function applyBannedStateFromMessages() {
-  let accountChanged = false;
   state.messages.forEach((message) => {
     if (!isBannedMessage(message)) return;
-    if (!message.is_banned || message.category !== "已封禁") {
-      message.is_banned = true;
-      message.category = "已封禁";
-    }
-    accountChanged = markAccountBanned(message.account) || accountChanged;
+    message.is_banned = true;
+    message.mail_type = "banned";
   });
-  if (accountChanged) {
-    renderCategories();
-    renderAccounts();
-  }
 }
 
 function removeCategory(name) {
@@ -1462,7 +1566,16 @@ function renderCategories() {
   els.categoryFilter.value = categoryList.includes(mailValue) ? mailValue : "all";
 }
 
-function renderAccounts() {
+function restoreMailboxListScroll(scrollTop) {
+  if (!Number.isFinite(scrollTop)) return;
+  els.mailboxList.scrollTop = scrollTop;
+  requestAnimationFrame(() => {
+    els.mailboxList.scrollTop = scrollTop;
+  });
+}
+
+function renderAccounts({ preserveScroll = false } = {}) {
+  const previousScrollTop = preserveScroll ? els.mailboxList.scrollTop : NaN;
   const tempCount = state.accounts.filter((account) => accountSourceGroup(account) === "temp").length;
   const msCount = state.accounts.filter((account) => accountSourceGroup(account) === "microsoft").length;
   const genericCount = state.accounts.filter((account) => accountSourceGroup(account) === "generic").length;
@@ -1484,10 +1597,12 @@ function renderAccounts() {
   els.mailboxPageText.textContent = `${state.mailboxPage} / ${pages}`;
   els.mailboxPrevPage.disabled = state.mailboxPage <= 1;
   els.mailboxNextPage.disabled = state.mailboxPage >= pages;
+  syncMailboxPageSelection(pageAccounts);
   if (!pageAccounts.length) {
     els.mailboxList.className = "mailbox-list empty";
     const sourceLabel = SOURCE_FILTER_LABELS[state.mailboxSourceFilter || "all"] || "当前";
     els.mailboxList.textContent = state.activeView === "login" ? "暂无凭证" : `${sourceLabel}筛选下暂无邮箱`;
+    if (preserveScroll) restoreMailboxListScroll(previousScrollTop);
     return;
   }
   els.mailboxList.className = "mailbox-list";
@@ -1495,6 +1610,8 @@ function renderAccounts() {
     const stateClass = statusClass(account.last_status);
     const sourceText = SOURCE_FILTER_LABELS[accountSourceGroup(account)] || "其他";
     const category = account.category || EMPTY_CATEGORY_LABEL;
+    const isActive = state.activeMailboxId === account.id;
+    const badgeText = stateClass === "failed" ? statusLabel(account) : category;
     const title = [
       account.email,
       `分组：${category}`,
@@ -1503,16 +1620,43 @@ function renderAccounts() {
       account.last_error_label || account.last_error || "",
     ].filter(Boolean).join(" · ");
     return `
-    <div class="mailbox-row refresh-state-${escapeHtml(stateClass)}${state.activeMailboxId === account.id ? " active" : ""}" data-id="${escapeHtml(account.id)}">
+    <div class="mailbox-row refresh-state-${escapeHtml(stateClass)}${isActive ? " active" : ""}" data-id="${escapeHtml(account.id)}" aria-current="${isActive ? "true" : "false"}">
       <input class="mailbox-check" type="checkbox" ${state.selected.has(account.id) ? "checked" : ""} title="${escapeHtml(title)}">
-      <button class="mailbox-row-main" type="button" title="${escapeHtml(title)}">
+      <button class="mailbox-row-main" type="button" title="${escapeHtml(title)}" aria-pressed="${isActive ? "true" : "false"}">
         <strong>${escapeHtml(account.email)}</strong>
-        <em>${escapeHtml(category)}</em>
+        <em class="${stateClass === "failed" ? "failed" : ""}">${escapeHtml(badgeText)}</em>
       </button>
       <button class="icon danger" type="button" aria-label="删除">×</button>
     </div>
   `;
   }).join("");
+  if (preserveScroll) restoreMailboxListScroll(previousScrollTop);
+}
+
+function syncMailboxPageSelection(pageAccounts = []) {
+  if (!els.mailboxSelectPage) return;
+  const selectedCount = pageAccounts.filter((account) => state.selected.has(account.id)).length;
+  els.mailboxSelectPage.disabled = !pageAccounts.length;
+  els.mailboxSelectPage.checked = Boolean(pageAccounts.length && selectedCount === pageAccounts.length);
+  els.mailboxSelectPage.indeterminate = selectedCount > 0 && selectedCount < pageAccounts.length;
+}
+
+function currentMailboxPageAccounts() {
+  const accounts = filteredAccounts();
+  const size = Number(els.mailboxPageSize.value || 20);
+  const pages = Math.max(1, Math.ceil(accounts.length / size));
+  state.mailboxPage = Math.min(Math.max(1, state.mailboxPage), pages);
+  const start = (state.mailboxPage - 1) * size;
+  return accounts.slice(start, start + size);
+}
+
+function syncMailboxActiveRows() {
+  els.mailboxList.querySelectorAll(".mailbox-row").forEach((row) => {
+    const isActive = row.dataset.id === state.activeMailboxId;
+    row.classList.toggle("active", isActive);
+    row.setAttribute("aria-current", isActive ? "true" : "false");
+    row.querySelector(".mailbox-row-main")?.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
 }
 
 function mailKey(message) {
@@ -1534,6 +1678,39 @@ function isIgnoredMessage(message) {
   return state.ignoredMessageKeys.has(mailKey(message));
 }
 
+function syncMessageSelectionControls(pageItems = state.messages) {
+  if (!els.mailSelectPage) return;
+  const pageKeys = pageItems.map(mailKey);
+  const selectedCount = pageKeys.filter((key) => state.selectedMessages.has(key)).length;
+  els.mailSelectPage.disabled = !pageKeys.length || state.messagesLoading;
+  els.mailSelectPage.checked = Boolean(pageKeys.length && selectedCount === pageKeys.length);
+  els.mailSelectPage.indeterminate = selectedCount > 0 && selectedCount < pageKeys.length;
+}
+
+function selectedMailboxEmails() {
+  return state.accounts
+    .filter((account) => state.selected.has(account.id))
+    .map((account) => String(account.email || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function activeMessageScope() {
+  const selectedEmails = selectedMailboxEmails();
+  if (selectedEmails.length) {
+    return {
+      emails: selectedEmails,
+      label: selectedEmails.length === 1 ? selectedEmails[0] : `已选 ${selectedEmails.length} 个邮箱`,
+    };
+  }
+  if (state.activeMailboxEmail) {
+    return {
+      emails: [state.activeMailboxEmail.toLowerCase()],
+      label: state.activeMailboxEmail,
+    };
+  }
+  return { emails: [], label: "" };
+}
+
 function messageQueryParams() {
   const size = Math.max(1, Number(els.pageSize.value || 20));
   const params = new URLSearchParams({
@@ -1545,7 +1722,12 @@ function messageQueryParams() {
     mail_type: els.typeFilter?.value || "all",
     category: els.categoryFilter.value || "all",
   });
-  if (state.activeMailboxEmail) params.set("account", state.activeMailboxEmail);
+  const scope = activeMessageScope();
+  if (scope.emails.length > 1) {
+    params.set("accounts", scope.emails.join(","));
+  } else if (scope.emails.length === 1) {
+    params.set("account", scope.emails[0]);
+  }
   return params;
 }
 
@@ -1632,7 +1814,8 @@ function renderMessages() {
   state.page = Math.min(Math.max(1, state.page), pages);
   const pageItems = messages;
 
-  const mailboxSuffix = state.activeMailboxEmail ? ` · ${state.activeMailboxEmail}` : "";
+  const scope = activeMessageScope();
+  const mailboxSuffix = scope.label ? ` · ${scope.label}` : "";
   els.pageSummary.textContent = state.messagesLoading ? "读取邮件缓存中" : `${total} 封邮件${mailboxSuffix}`;
   els.pageText.textContent = `${state.page} / ${pages}`;
   els.prevPage.disabled = state.page <= 1;
@@ -1642,6 +1825,7 @@ function renderMessages() {
     els.deleteFilteredBtn.disabled = !total;
     els.deleteFilteredBtn.textContent = total ? `删除${typeLabel || "邮件"} ${total}` : "批量删除";
   }
+  syncMessageSelectionControls(pageItems);
 
   if (!pageItems.length) {
     els.mailList.className = "mail-list empty";
@@ -1651,22 +1835,32 @@ function renderMessages() {
     renderDetail(null);
     return;
   }
-  els.mailList.className = "mail-list";
+  els.mailList.className = `mail-list${size >= 20 ? " compact" : ""}`;
   els.mailList.innerHTML = pageItems.map((message) => {
     const key = mailKey(message);
+    const isSelected = state.selectedMessages.has(key);
+    const itemTitle = [
+      message.subject || "(无主题)",
+      message.account || "",
+      message.sender || "",
+      formatTime(message.received_at),
+    ].filter(Boolean).join(" · ");
     return `
-      <button class="mail-item${key === state.activeMessageKey ? " active" : ""}${message.is_banned ? " banned" : ""}" type="button" data-key="${escapeHtml(key)}">
-        <span class="mail-item-top">
-          <strong>${escapeHtml(message.subject || "(无主题)")}</strong>
-          <span class="mail-item-actions">
-            <em>${escapeHtml(mailTypeLabel(message))}</em>
-            <span class="mail-delete-one" title="删除这封邮件" aria-label="删除这封邮件">×</span>
+      <div class="mail-row${isSelected ? " selected" : ""}" data-key="${escapeHtml(key)}">
+        <input class="mail-check" type="checkbox" ${isSelected ? "checked" : ""} aria-label="选择这封邮件">
+        <button class="mail-item${key === state.activeMessageKey ? " active" : ""}${message.is_banned ? " banned" : ""}" type="button" data-key="${escapeHtml(key)}" title="${escapeHtml(itemTitle)}">
+          <span class="mail-item-top">
+            <strong>${escapeHtml(message.subject || "(无主题)")}</strong>
+            <span class="mail-item-actions">
+              <em>${escapeHtml(mailTypeLabel(message))}</em>
+              <span class="mail-delete-one" title="删除这封邮件" aria-label="删除这封邮件">×</span>
+            </span>
           </span>
-        </span>
-        <span class="mail-item-account">${escapeHtml(message.account || "-")}</span>
-        <span class="mail-item-meta">${escapeHtml(message.sender || "-")} · ${escapeHtml(formatTime(message.received_at))}</span>
-        <span class="mail-item-preview">${escapeHtml(message.preview || message.body || "")}</span>
-      </button>
+          <span class="mail-item-account">${escapeHtml(message.account || "-")}</span>
+          <span class="mail-item-meta">${escapeHtml(message.sender || "-")} · ${escapeHtml(formatTime(message.received_at))}</span>
+          <span class="mail-item-preview">${escapeHtml(message.preview || message.body || "")}</span>
+        </button>
+      </div>
     `;
   }).join("");
   if (!pageItems.some((message) => mailKey(message) === state.activeMessageKey)) {
@@ -1837,6 +2031,7 @@ async function deleteMessage(message) {
     const data = await readJsonResponse(response, "/client-api/messages/delete");
     if (!response.ok || data.success === false) throw new Error(data.error || "删除邮件失败");
     state.ignoredMessageKeys.add(mailKey(message));
+    state.selectedMessages.delete(mailKey(message));
     saveIgnoredMessages();
     if (state.activeMessageKey === mailKey(message)) state.activeMessageKey = "";
     await loadServerMessages({ silent: true });
@@ -2951,7 +3146,7 @@ function toggleMailboxFilter(account) {
   }
   state.page = 1;
   state.activeMessageKey = "";
-  renderAccounts();
+  syncMailboxActiveRows();
   loadServerMessages({ silent: true });
 }
 
@@ -3052,7 +3247,7 @@ async function syncMail() {
       addClientLog(`${result.email || "未知邮箱"}：${label}${hint ? `，${hint}` : ""}`, "error");
     });
     toast(errors.length ? "刷新完成，但有邮箱失败" : "刷新完成");
-    renderAccounts();
+    renderAccounts({ preserveScroll: true });
     setInlineProgress(els.mailProgress, 100, "完成");
   } catch (error) {
     const message = humanizeMailError(error.message || "刷新失败");
@@ -3107,7 +3302,6 @@ function pushActiveMessageAccountToRefresh() {
 }
 function renderAll() {
   state.categories = state.categories.filter((category) => isAllowedCategory(category));
-  saveJson(STORAGE_KEYS.categories, state.categories);
   syncActiveMailboxSelection();
   applyMailboxControlsState();
   renderCategories();
@@ -3191,6 +3385,7 @@ els.clearLocalBtn.addEventListener("click", () => {
   state.messages = [];
   state.messageTotal = 0;
   state.selected.clear();
+  state.selectedMessages.clear();
   state.activeMessageKey = "";
   saveJson(STORAGE_KEYS.accounts, state.accounts);
   renderAll();
@@ -3203,6 +3398,16 @@ els.selectAllBtn.addEventListener("click", () => {
     else state.selected.add(account.id);
   });
   renderAccounts();
+});
+els.mailboxSelectPage?.addEventListener("change", () => {
+  currentMailboxPageAccounts().forEach((account) => {
+    if (els.mailboxSelectPage.checked) state.selected.add(account.id);
+    else state.selected.delete(account.id);
+  });
+  state.page = 1;
+  state.activeMessageKey = "";
+  renderAccounts();
+  loadServerMessages({ silent: true });
 });
 els.mailboxPrevPage.addEventListener("click", () => {
   state.mailboxPage -= 1;
@@ -3231,6 +3436,9 @@ els.mailboxList.addEventListener("change", (event) => {
   if (event.target.matches(".mailbox-check")) {
     if (event.target.checked) state.selected.add(account.id);
     else state.selected.delete(account.id);
+    state.page = 1;
+    state.activeMessageKey = "";
+    loadServerMessages({ silent: true });
   }
 });
 els.mailboxList.addEventListener("click", (event) => {
@@ -3270,6 +3478,23 @@ els.mailList.addEventListener("click", (event) => {
   const item = event.target.closest(".mail-item");
   if (!item) return;
   state.activeMessageKey = item.dataset.key;
+  renderMessages();
+});
+els.mailList.addEventListener("change", (event) => {
+  const input = event.target.closest(".mail-check");
+  if (!input) return;
+  const row = input.closest(".mail-row");
+  if (!row) return;
+  if (input.checked) state.selectedMessages.add(row.dataset.key);
+  else state.selectedMessages.delete(row.dataset.key);
+  renderMessages();
+});
+els.mailSelectPage?.addEventListener("change", () => {
+  const pageKeys = state.messages.map(mailKey);
+  pageKeys.forEach((key) => {
+    if (els.mailSelectPage.checked) state.selectedMessages.add(key);
+    else state.selectedMessages.delete(key);
+  });
   renderMessages();
 });
 els.syncBtn.addEventListener("click", syncMail);
@@ -3351,9 +3576,12 @@ els.nextPage.addEventListener("click", () => {
   });
 });
 
+initResizableLayouts();
 renderAll();
 setActiveView("mail");
-loadServerMessages({ silent: true });
+window.GptAccountManagerRuntime.afterFirstPaint(() => {
+  loadServerMessages({ silent: true });
+});
 
 
 

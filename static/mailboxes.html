@@ -231,6 +231,27 @@
       </div>
     </section>
   </div>
+  <div id="mailboxGroupModal" class="modal-backdrop mailbox-group-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="mailbox-group-title">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">Group</p>
+          <h2 id="mailbox-group-title">设置分组</h2>
+        </div>
+        <button id="closeMailboxGroupModal" type="button" aria-label="关闭">×</button>
+      </div>
+      <p class="modal-hint" id="mailboxGroupHint">为选中的邮箱设置分组，留空表示未分组。</p>
+      <label class="modal-field">
+        <span>分组名称</span>
+        <input id="mailboxGroupInput" type="text" autocomplete="off" placeholder="例如：2026-06-06 或 客户A">
+      </label>
+      <div class="group-quick-list" id="mailboxGroupQuickList" aria-label="已有分组"></div>
+      <div class="modal-actions">
+        <button id="cancelMailboxGroupModal" type="button">取消</button>
+        <button id="confirmMailboxGroupModal" class="primary" type="button">保存分组</button>
+      </div>
+    </section>
+  </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/mailboxes.js?v={{APP_VERSION}}" defer></script>
 </body>

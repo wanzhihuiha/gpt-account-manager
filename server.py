@@ -115,6 +115,20 @@ def load_app_version() -> str:
 
 APP_VERSION = load_app_version()
 
+
+def load_asset_version() -> str:
+    latest = 0
+    try:
+        for pattern in ("*.css", "*.js", "*.svg"):
+            for item in STATIC_DIR.glob(pattern):
+                latest = max(latest, int(item.stat().st_mtime))
+    except Exception:
+        latest = 0
+    return f"{APP_VERSION}.{latest}" if latest else APP_VERSION
+
+
+ASSET_VERSION = load_asset_version()
+
 DEFAULT_HOST = os.environ.get("MAIL_PICKUP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MAIL_PICKUP_PORT", "8765"))
 ADMIN_TOKEN = os.environ.get("MAIL_PICKUP_ADMIN_TOKEN", "").strip()
@@ -2670,8 +2684,14 @@ def filter_messages(messages: list[dict[str, Any]], payload: dict[str, Any]) -> 
     mail_type = str(payload.get("mail_type", "all")).strip().lower()
     category = str(payload.get("category", "all")).strip().lower()
     account = str(payload.get("account", "")).strip().lower()
+    accounts = {
+        item.strip().lower()
+        for item in str(payload.get("accounts", "")).split(",")
+        if item.strip()
+    }
     filtered = []
     for message in messages:
+        message_account = str(message.get("account", "")).lower()
         haystack = " ".join(str(message.get(key, "")) for key in [
             "account", "sender", "subject", "preview", "body", "folder", "provider", "mail_type_label"
         ]).lower()
@@ -2691,7 +2711,9 @@ def filter_messages(messages: list[dict[str, Any]], payload: dict[str, Any]) -> 
             continue
         if category != "all" and category != str(message.get("category", "")).lower():
             continue
-        if account and account not in str(message.get("account", "")).lower():
+        if accounts and message_account not in accounts:
+            continue
+        if account and account not in message_account:
             continue
         filtered.append(message)
     return sorted(filtered, key=message_sort_value, reverse=True)
@@ -9277,6 +9299,7 @@ class Handler(BaseHTTPRequestHandler):
                     "mail_type": params.get("mail_type", ["all"])[0],
                     "category": params.get("category", ["all"])[0],
                     "account": params.get("account", [""])[0],
+                    "accounts": params.get("accounts", [""])[0],
                 }
                 self.send_json(cached_messages_response(
                     workspace_file(self.workspace_id(), "messages.json"),
@@ -9930,13 +9953,16 @@ class Handler(BaseHTTPRequestHandler):
         elif target.suffix == ".js":
             content_type = "application/javascript; charset=utf-8"
         if target.suffix == ".html":
-            body = target.read_text(encoding="utf-8").replace("{{APP_VERSION}}", APP_VERSION).encode("utf-8")
+            body = target.read_text(encoding="utf-8").replace("{{APP_VERSION}}", load_asset_version()).encode("utf-8")
         else:
             body = target.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        if target.suffix in {".css", ".js", ".svg"}:
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 

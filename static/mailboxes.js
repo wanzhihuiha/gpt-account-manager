@@ -88,6 +88,13 @@ const els = {
   closeImport: document.querySelector("#closeMailboxImport"),
   cancelImport: document.querySelector("#cancelMailboxImport"),
   confirmImport: document.querySelector("#confirmMailboxImport"),
+  groupModal: document.querySelector("#mailboxGroupModal"),
+  groupHint: document.querySelector("#mailboxGroupHint"),
+  groupInput: document.querySelector("#mailboxGroupInput"),
+  groupQuickList: document.querySelector("#mailboxGroupQuickList"),
+  closeGroupModal: document.querySelector("#closeMailboxGroupModal"),
+  cancelGroupModal: document.querySelector("#cancelMailboxGroupModal"),
+  confirmGroupModal: document.querySelector("#confirmMailboxGroupModal"),
   toast: document.querySelector("#toast"),
 };
 
@@ -1078,22 +1085,75 @@ async function deleteAccounts(accounts) {
   }
 }
 
-function setSelectedGroup() {
+function selectedGroupRows() {
   const rows = selectedRows();
   if (!rows.length) {
     toast("先选择邮箱");
-    return;
+    return [];
   }
-  const group = prompt("输入新的分组名，留空表示未分组：", rows[0]?.category || "");
-  if (group === null) return;
-  const next = group.trim();
+  return rows;
+}
+
+function openGroupModal() {
+  const rows = selectedGroupRows();
+  if (!rows.length) return;
+  const firstCategory = rows[0]?.category || "";
+  const sameCategory = rows.every((row) => String(row.category || "") === String(firstCategory));
+  els.groupInput.value = sameCategory ? firstCategory : "";
+  els.groupHint.textContent = `将为 ${rows.length} 个邮箱设置分组，留空表示未分组。`;
+  const groups = [...new Set(state.categories.filter(Boolean).sort((a, b) => a.localeCompare(b)))];
+  els.groupQuickList.innerHTML = groups.map((group) =>
+    `<button type="button" data-group="${escapeHtml(group)}">${escapeHtml(group)}</button>`
+  ).join("");
+  els.groupModal.hidden = false;
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => {
+    els.groupInput.focus();
+    els.groupInput.select();
+  }, 0);
+}
+
+function closeGroupModal() {
+  els.groupModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  els.groupInput.value = "";
+  els.groupQuickList.innerHTML = "";
+}
+
+function setSelectedGroup() {
+  const rows = selectedGroupRows();
+  if (!rows.length) return;
+  const next = els.groupInput.value.trim();
   rows.forEach((row) => {
     row.category = next;
     if (next) ensureCategory(next);
   });
   saveAll();
   setStatus(`已设置 ${rows.length} 个邮箱的分组。`, "ok");
+  toast(next ? `已设置分组：${next}` : "已移到未分组");
+  closeGroupModal();
   renderAll();
+}
+
+function setGroupInputFromQuickList(event) {
+  const button = event.target.closest("button[data-group]");
+  if (!button) return;
+  els.groupInput.value = button.dataset.group || "";
+  els.groupInput.focus();
+}
+
+function submitGroupModalOnEnter(event) {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    setSelectedGroup();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeGroupModal();
+  }
+}
+
+function closeGroupModalOnBackdrop(event) {
+  if (event.target === els.groupModal) closeGroupModal();
 }
 
 els.searchInput.addEventListener("input", () => {
@@ -1192,7 +1252,13 @@ els.copySelected.addEventListener("click", async () => {
   await copyText(rows.map(mailboxCopyLine).join("\n"), `已复制 ${rows.length} 个邮箱`);
 });
 
-els.groupSelected.addEventListener("click", setSelectedGroup);
+els.groupSelected.addEventListener("click", openGroupModal);
+els.closeGroupModal.addEventListener("click", closeGroupModal);
+els.cancelGroupModal.addEventListener("click", closeGroupModal);
+els.confirmGroupModal.addEventListener("click", setSelectedGroup);
+els.groupQuickList.addEventListener("click", setGroupInputFromQuickList);
+els.groupInput.addEventListener("keydown", submitGroupModalOnEnter);
+els.groupModal.addEventListener("click", closeGroupModalOnBackdrop);
 els.deleteSelected.addEventListener("click", () => deleteAccounts(selectedRows()));
 els.exportBtn.addEventListener("click", () => {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -1216,4 +1282,6 @@ els.exportBackupBtn.addEventListener("click", () => {
 });
 
 renderAll();
-syncMailboxes({ quiet: true });
+window.GptAccountManagerRuntime.afterFirstPaint(() => {
+  syncMailboxes({ quiet: true });
+});

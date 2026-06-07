@@ -202,7 +202,7 @@ button:not(.primary):not(.button-primary) {
 }
 
 .workspace {
-  gap: 14px !important;
+  gap: 0 !important;
 }
 
 .panel,
@@ -281,6 +281,27 @@ td,
   background: rgba(255, 255, 255, 0.52) !important;
 }
 
+.mailbox-row.active {
+  border-color: rgba(37, 99, 235, 0.58) !important;
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.98), rgba(239, 246, 255, 0.96)) !important;
+  box-shadow: inset 4px 0 0 var(--forge-accent), 0 5px 14px rgba(37, 99, 235, 0.16) !important;
+}
+
+.mailbox-row.active .mailbox-row-main strong {
+  color: #174ea6 !important;
+}
+
+.mailbox-row.active .mailbox-row-main em {
+  background: rgba(37, 99, 235, 0.12) !important;
+  color: var(--forge-accent) !important;
+}
+
+.mailbox-row .mailbox-row-main em.failed,
+.mailbox-row.active .mailbox-row-main em.failed {
+  background: rgba(225, 29, 72, 0.12) !important;
+  color: var(--forge-danger) !important;
+}
+
 .mail-item.active {
   background: rgba(255, 255, 255, 0.88) !important;
   border-color: rgba(37, 99, 235, 0.38) !important;
@@ -331,4 +352,108 @@ th {
   .panel-body {
     border-radius: var(--forge-radius-md) !important;
   }
+}
+
+/* Performance profile: avoid expensive full-page blur/compositing during navigation. */
+body::before,
+body::after {
+  display: none !important;
+}
+
+.topbar,
+.module-tabs,
+.toolbar,
+.panel,
+.search-strip,
+.mail-list-panel,
+.mail-detail-panel,
+.log-panel,
+.table-wrap,
+.accounts,
+.modal {
+  background: rgba(255, 255, 255, 0.94) !important;
+  box-shadow: 0 1px 3px rgba(30, 41, 59, 0.08) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.topnav a,
+.meta-chip,
+.module-tab,
+button,
+.button,
+input,
+select,
+textarea {
+  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease !important;
+}
+
+.topnav a:hover,
+.meta-chip:hover,
+button:hover:not(:disabled),
+.button:hover:not(:disabled) {
+  transform: none !important;
+}
+
+button.primary,
+button.primary:hover:not(:disabled),
+.button-primary,
+.button-primary:hover:not(:disabled),
+.segmented button[aria-pressed="true"],
+.segmented button[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: transparent !important;
+  background: linear-gradient(135deg, var(--forge-accent), var(--forge-accent-2)) !important;
+  color: #fff !important;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2) !important;
+}
+
+button.danger,
+button.danger:hover:not(:disabled),
+.ghost.danger,
+.ghost.danger:hover:not(:disabled) {
+  border-color: rgba(225, 29, 72, 0.18) !important;
+  background: rgba(255, 241, 243, 0.9) !important;
+  color: var(--forge-danger) !important;
+  box-shadow: none !important;
+}
+
+.mailbox-side-link.danger,
+.mailbox-side-link.danger:hover:not(:disabled),
+.mailbox-side-link.danger.active {
+  border-color: rgba(225, 29, 72, 0.22) !important;
+  background: rgba(255, 246, 248, 0.94) !important;
+  color: var(--forge-danger) !important;
+}
+
+.language-switch,
+.language-switch:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #28506e !important;
+  box-shadow: none !important;
+}
+
+.mailbox-row-actions button {
+  transform-origin: center !important;
+  transition: transform 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease !important;
+}
+
+.mailbox-row-actions button:hover:not(:disabled),
+.mailbox-row-actions button:focus-visible {
+  transform: scale(1.08) !important;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.18) !important;
+}
+
+.mailbox-row-actions button[data-action="copy"]:hover:not(:disabled),
+.mailbox-row-actions button[data-action="copy"]:focus-visible {
+  border-color: rgba(37, 99, 235, 0.36) !important;
+  background: rgba(37, 99, 235, 0.12) !important;
+  color: var(--forge-accent) !important;
+}
+
+.mailbox-row-actions button[data-action="delete"]:hover:not(:disabled),
+.mailbox-row-actions button[data-action="delete"]:focus-visible {
+  border-color: rgba(225, 29, 72, 0.34) !important;
+  background: rgba(255, 241, 243, 0.96) !important;
+  color: var(--forge-danger) !important;
+  box-shadow: 0 3px 8px rgba(225, 29, 72, 0.16) !important;
 }
