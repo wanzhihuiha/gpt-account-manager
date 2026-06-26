@@ -76,6 +76,10 @@ const state = {
   manualCodeTimers: new Map(),
   runner: null,
   manualCodeTarget: null,
+  accountsLoading: false,
+  accountsLoadedOnce: false,
+  accountsLoadError: "",
+  accountsSyncPromise: null,
 };
 
 const MAX_LOGIN_ATTEMPTS = 3;
@@ -219,7 +223,7 @@ if (els.loginStrategy) els.loginStrategy.value = "protocol";
 if (els.taskMode) els.taskMode.value = "login";
 
 const authQueryToken = new URLSearchParams(window.location.search).get("token") || "";
-const workspaceId = getWorkspaceId();
+getWorkspaceId();
 if (authQueryToken) {
   localStorage.setItem("ctgptm.admin.toolToken", authQueryToken);
 }
@@ -252,6 +256,10 @@ function getWorkspaceId() {
   const next = `ws_${crypto.randomUUID().replace(/-/g, "")}`;
   localStorage.setItem(STORAGE_KEYS.workspaceId, next);
   return next;
+}
+
+function currentWorkspaceId() {
+  return getWorkspaceId();
 }
 
 function repairMojibakeText(value) {
@@ -296,7 +304,7 @@ function rememberedAdminToken() {
 function apiHeaders() {
   const headers = {
     "Content-Type": "application/json",
-    "X-Workspace-Id": workspaceId,
+    "X-Workspace-Id": currentWorkspaceId(),
   };
   const token = rememberedAdminToken();
   if (token) {
@@ -555,15 +563,26 @@ function compactLogMessage(message, meta = {}) {
   const email = meta.email || String(message || "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
   const step = String(meta.step || "");
   const rawCode = String(meta.error_code || meta.code || "");
-  const code = rawCode || meta.log_type === "error"
-    ? inferErrorCode({
-      error_code: rawCode,
-      error: message,
-      error_hint: meta.error_hint || meta.hint || "",
-    })
-    : "";
+  const errorDetail = compactText([meta.error_hint, meta.error, meta.hint].filter(Boolean).join(" · "), 180);
+  const code = rawCode
+    ? (rawCode === "login_failed" && meta.log_type === "error"
+      ? inferErrorCode({
+        error_code: rawCode,
+        error: message,
+        error_hint: errorDetail,
+      })
+      : rawCode)
+    : (meta.log_type === "error"
+      ? inferErrorCode({
+        error_code: rawCode,
+        error: message,
+        error_hint: errorDetail,
+      })
+      : "");
   if (code) {
-    return `${email ? `${email} ` : ""}${errorCodeLabel(code)}`;
+    const label = errorCodeLabel(code);
+    const detail = errorDetail && errorDetail !== label ? `：${errorDetail}` : "";
+    return `${email ? `${email} ` : ""}${label}${detail}`;
   }
   if (step && ERROR_MANUAL[step]) {
     return `${email ? `${email} ` : ""}${errorCodeLabel(step)}`;
@@ -587,6 +606,9 @@ function compactLogMessage(message, meta = {}) {
   }
   if (step) {
     return `${email ? `${email} ` : ""}处理进度`;
+  }
+  if ((meta.log_type === "error" || meta.log_type === "warning") && errorDetail) {
+    return `${email ? `${email} ` : ""}${errorDetail}`;
   }
   return compactText(message, 140);
 }
@@ -1109,7 +1131,12 @@ function failRow(row, details) {
   });
   saveQueue();
   renderQueue();
-  addLog(`${row.email} ${formatJobError(rowState(row))}`, "error");
+  addLog(`${row.email} ${formatJobError(rowState(row))}`, "error", {
+    email: row.email,
+    error_code: row.error_code,
+    error: row.error,
+    error_hint: row.error_hint,
+  });
 }
 
 function saveSettings() {
@@ -1254,12 +1281,20 @@ function sourceTone(account) {
 function sourceRefreshState(account) {
   const key = accountEmailKey(account.email);
   if (!key) return { status: "idle", label: "未处理", tone: "idle", message: "" };
+  const mailStatus = String(account.mail_verify_status || account.last_status || "").toLowerCase();
+  if (mailStatus === "checking") {
+    return {
+      status: "running",
+      label: "验证中",
+      tone: "running",
+      message: account.last_error_hint || "正在读取取码邮箱",
+    };
+  }
   const saved = state.savedRefreshResults.get(key);
   const rows = state.queue.filter((row) => accountEmailKey(row.email || row.name) === key);
   if (saved?.auth_file || rows.some((row) => row.auth_file || rowState(row).status === "success")) {
     return { status: "success", label: "成功", tone: "success", message: "已生成 auth_file" };
   }
-  const mailStatus = String(account.mail_verify_status || account.last_status || "").toLowerCase();
   if (mailStatus === "error" || mailStatus === "failed") {
     return {
       status: "failed",
@@ -1311,6 +1346,7 @@ function sourceRefreshState(account) {
 function accountOptions(active) {
   const options = [
     ["all", "全部状态"],
+    ["running", "验证中"],
     ["success", "成功"],
     ["failed", "失败"],
     ["needs_code", "需要接码"],
@@ -1319,7 +1355,6 @@ function accountOptions(active) {
     return `<option value="${escapeHtml(value)}"${value === active ? " selected" : ""}>${escapeHtml(label)}</option>`;
   }).join("");
 }
-
 function filteredAccounts() {
   const query = els.sourceSearch.value.trim().toLowerCase();
   const type = els.sourceType.value;
@@ -1336,7 +1371,7 @@ function filteredAccounts() {
 function renderSources() {
   els.sourceCategory.innerHTML = accountOptions(els.sourceCategory.value || "all");
   const accounts = filteredAccounts();
-  els.sourceTotal.textContent = String(accounts.length);
+  els.sourceTotal.textContent = String(state.accounts.length);
   const selectedVisible = accounts.filter((account) => state.selectedAccounts.has(account.id)).length;
   if (els.sourceSelectAll) {
     els.sourceSelectAll.textContent = accounts.length && selectedVisible === accounts.length ? "取消全选" : "全选";
@@ -1350,7 +1385,16 @@ function renderSources() {
   els.sourceNext.disabled = state.sourcePage >= pages;
   if (!pageItems.length) {
     els.sourceList.className = "mailbox-list empty";
-    els.sourceList.textContent = state.accounts.length ? "没有匹配的邮箱" : "请先在账号管理页导入邮箱";
+    const emptyMessage = state.accountsLoading && !state.accounts.length
+      ? "正在同步邮箱..."
+      : state.accounts.length
+        ? "没有匹配的邮箱"
+        : state.accountsLoadError
+          ? `同步邮箱失败：${state.accountsLoadError}`
+          : state.accountsLoadedOnce
+            ? "当前工作空间还没有邮箱"
+            : "正在同步邮箱...";
+    els.sourceList.textContent = emptyMessage;
     return;
   }
   els.sourceList.className = "mailbox-list";
@@ -1480,6 +1524,59 @@ function applyMailboxVerifyResult(account, result) {
   };
 }
 
+function currentSourceAccount(account) {
+  const id = String(account?.id || "");
+  const email = accountEmailKey(account?.email);
+  return state.accounts.find((item) => id && item.id === id)
+    || state.accounts.find((item) => email && accountEmailKey(item.email) === email && item.source === account.source)
+    || state.accounts.find((item) => email && accountEmailKey(item.email) === email)
+    || account;
+}
+
+function syncMailboxVerifyState(target, source) {
+  if (!target || !source || target === source) return;
+  [
+    "mail_verify_status",
+    "last_status",
+    "last_check_at",
+    "last_message_count",
+    "last_error",
+    "last_error_code",
+    "last_error_label",
+    "last_error_hint",
+  ].forEach((key) => {
+    target[key] = source[key];
+  });
+}
+
+function markMailboxVerifyChecking(account, index, total) {
+  account.mail_verify_status = "checking";
+  account.last_status = "checking";
+  account.last_check_at = new Date().toISOString();
+  account.last_error = "";
+  account.last_error_code = "";
+  account.last_error_label = "";
+  account.last_error_hint = `正在验证第 ${index} / ${total} 个邮箱`;
+}
+
+function markCurrentMailboxVerifyChecking(account, index, total) {
+  const current = currentSourceAccount(account);
+  markMailboxVerifyChecking(current, index, total);
+  syncMailboxVerifyState(account, current);
+  return current;
+}
+
+function applyMailboxVerifyResultToCurrentAccount(account, result) {
+  const current = currentSourceAccount(account);
+  const applied = applyMailboxVerifyResult(current, result);
+  syncMailboxVerifyState(account, current);
+  return applied;
+}
+
+function nextFrame() {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
 async function verifySelectedMailboxes() {
   const selected = selectedSourceAccounts();
   if (!selected.length) {
@@ -1496,7 +1593,15 @@ async function verifySelectedMailboxes() {
   let noCode = 0;
   let failed = 0;
   try {
-    for (const account of selected) {
+    for (const [index, account] of selected.entries()) {
+      const current = index + 1;
+      if (els.verifySelectedSources) {
+        els.verifySelectedSources.textContent = `验证中 ${current}/${selected.length}`;
+      }
+      markCurrentMailboxVerifyChecking(account, current, selected.length);
+      saveJson(STORAGE_KEYS.accounts, state.accounts);
+      renderSources();
+      await nextFrame();
       addLog(`${account.email} 验证邮箱`, "info", { step: "mail_verify", email: account.email });
       try {
         const response = await fetch("/client-api/fetch", {
@@ -1506,7 +1611,7 @@ async function verifySelectedMailboxes() {
         });
         const data = await readJsonResponse(response, "验证邮箱失败");
         const result = (data.results || []).find((item) => accountEmailKey(item?.email) === accountEmailKey(account.email)) || (data.results || [])[0];
-        const applied = applyMailboxVerifyResult(account, result || {
+        const applied = applyMailboxVerifyResultToCurrentAccount(account, result || {
           ok: false,
           error_code: "mail_pickup_unavailable",
           error_label: "收信失败",
@@ -1526,7 +1631,7 @@ async function verifySelectedMailboxes() {
       } catch (error) {
         failed += 1;
         const details = error.details || { error: error.message || "验证邮箱失败", error_code: "mail_pickup_unavailable" };
-        applyMailboxVerifyResult(account, {
+        applyMailboxVerifyResultToCurrentAccount(account, {
           ok: false,
           error: details.error,
           error_code: details.error_code || "mail_pickup_unavailable",
@@ -1539,6 +1644,9 @@ async function verifySelectedMailboxes() {
           email: account.email,
         });
       }
+      saveJson(STORAGE_KEYS.accounts, state.accounts);
+      renderSources();
+      await nextFrame();
     }
     saveJson(STORAGE_KEYS.accounts, state.accounts);
     renderSources();
@@ -2236,7 +2344,12 @@ async function pollPhoneEntry(phoneId, rowId = "") {
     item.last_checked_at = new Date().toISOString();
     savePhonePool();
     renderPhonePool();
-    addLog(formatJobError(details), "error", { error_code: details.error_code || "phone_code_fetch_failed", email: item.account_email });
+    addLog(formatJobError(details), "error", {
+      error_code: details.error_code || "phone_code_fetch_failed",
+      error: details.error,
+      error_hint: details.error_hint,
+      email: item.account_email,
+    });
   }
 }
 
@@ -2339,7 +2452,11 @@ async function cleanFailedRows() {
     cpaDeleted = await deleteCpaRows(rows);
   } catch (error) {
     const details = error.details || { error: error.message || "CPA 删除失败", error_code: "delete_failed" };
-    addLog(formatJobError(details), "warning", { error_code: details.error_code || "delete_failed" });
+    addLog(formatJobError(details), "warning", {
+      error_code: details.error_code || "delete_failed",
+      error: details.error,
+      error_hint: details.error_hint,
+    });
   }
   const rowIds = new Set(rows.map((row) => row.id));
   state.queue = state.queue.filter((row) => !rowIds.has(row.id));
@@ -2403,10 +2520,10 @@ function loginPayload(row) {
   const isCpa = row.source_kind === "cpa";
   const mode = els.taskMode ? els.taskMode.value : "login";
   const phoneEntry = phoneEntryForRow(row);
-  
+
   let base_url = isCpa ? row.cpa_base_url || "" : "";
   let management_key = isCpa ? row.cpa_management_key || "" : "";
-  
+
   if (els.autoUpdateCpa && els.autoUpdateCpa.checked) {
     if (!base_url) base_url = els.cpaBaseUrl.value.trim();
     if (!management_key) management_key = els.cpaManagementKey.value.trim();
@@ -2590,12 +2707,13 @@ function addLog(message, type = "info", meta = {}) {
     <strong>${escapeHtml(LOG_TYPE_LABELS[type] || type.toUpperCase())}</strong>
     <em>${escapeHtml(displayMessage)}<b class="log-repeat"></b>${snapshotAction}</em>
   `;
-  els.logList.prepend(item);
+  els.logList.append(item);
   state.lastLog = { type, message: displayMessage, element: item, count: 1 };
   while (els.logList.children.length > 300) {
-    els.logList.lastElementChild.remove();
+    els.logList.firstElementChild.remove();
   }
   els.logHint.textContent = displayMessage;
+  els.logList.scrollTop = els.logList.scrollHeight;
 }
 
 function proxySessionFor(row, attempt) {
@@ -2805,6 +2923,8 @@ async function waitForJob(row, jobId) {
       if (row.status === "failed") {
         addLog(`${row.email} ${formatJobError(rowState(row))}`, "error", {
           error_code: row.error_code || "login_failed",
+          error: row.error,
+          error_hint: row.error_hint,
           email: row.email,
         });
       }
@@ -2981,6 +3101,8 @@ async function pollJobs() {
       });
       addLog(`${row.email} ${formatJobError(rowState(row))}`, "error", {
         error_code: row.error_code,
+        error: row.error,
+        error_hint: row.error_hint,
         email: row.email,
       });
       saveQueue();
@@ -3045,7 +3167,7 @@ async function savedRefreshRows() {
         authFile: item.auth_file,
       }));
   } catch (error) {
-    addLog(`读取已保存刷新结果失败：${error.message || "unknown"}`, "warning");
+    addLog(`读取已保存刷新结果失败：${error.message || "未知错误"}`, "warning");
     return [];
   }
 }
@@ -3062,7 +3184,7 @@ async function syncRefreshResults() {
     );
     renderSources();
   } catch (error) {
-    addLog(`读取已保存刷新结果失败：${error.message || "unknown"}`, "warning");
+    addLog(`读取已保存刷新结果失败：${error.message || "未知错误"}`, "warning");
   }
 }
 
@@ -3312,7 +3434,11 @@ async function syncTempCredentialsForQueue() {
       .forEach((item) => addLog(`${item?.email || ""} 未找到 JWT`, "warning", { error_code: "mail_credentials_missing", email: item?.email || "" }));
   } catch (error) {
     const details = error.details || { error: error.message || "同步临时邮箱失败", error_code: "temp_sync_failed" };
-    addLog(formatJobError(details), "error", { error_code: details.error_code || "temp_sync_failed" });
+    addLog(formatJobError(details), "error", {
+      error_code: details.error_code || "temp_sync_failed",
+      error: details.error,
+      error_hint: details.error_hint,
+    });
     toast("同步失败");
   } finally {
     els.syncTempCredentials.disabled = false;
@@ -3354,7 +3480,7 @@ async function importPickupCredentials() {
     try {
       await syncAccountsFromServer({ quiet: true });
     } catch (syncError) {
-      addLog(`导入已写入服务器，但回读同步失败：${syncError.message || "unknown"}`, "warning", {
+      addLog(`导入已写入服务器，但回读同步失败：${syncError.message || "未知错误"}`, "warning", {
         error_code: "pickup_import_failed",
       });
     }
@@ -3374,7 +3500,11 @@ async function importPickupCredentials() {
     });
   } catch (error) {
     const details = error.details || { error: error.message || "快捷导入失败", error_code: "pickup_import_failed" };
-    addLog(formatJobError(details), "error", { error_code: details.error_code || "pickup_import_failed" });
+    addLog(formatJobError(details), "error", {
+      error_code: details.error_code || "pickup_import_failed",
+      error: details.error,
+      error_hint: details.error_hint,
+    });
     toast(details.error || "导入失败");
   } finally {
     if (els.confirmPickupImport) {
@@ -3425,11 +3555,11 @@ async function syncAccountsFromServer({ quiet = false } = {}) {
     const [accountsData, tempData, genericData] = await Promise.all([
       readJsonResponse(accountsResponse, "同步 Outlook 邮箱失败"),
       readJsonResponse(tempResponse, "同步临时邮箱失败"),
-      readJsonResponse(genericResponse, "同步其他邮箱失败"),
+      readJsonResponse(genericResponse, "\u540c\u6b65\u5176\u4ed6\u90ae\u7bb1\u5931\u8d25"),
     ]);
-    if (!accountsResponse.ok) throw new Error(accountsData.error || accountsResponse.statusText || "Failed to load Outlook accounts");
-    if (!tempResponse.ok) throw new Error(tempData.error || tempResponse.statusText || "Failed to load temp accounts");
-    if (!genericResponse.ok) throw new Error(genericData.error || genericResponse.statusText || "Failed to load generic accounts");
+    if (!accountsResponse.ok) throw new Error(accountsData.error || `同步 Outlook 邮箱失败（HTTP ${accountsResponse.status}）`);
+    if (!tempResponse.ok) throw new Error(tempData.error || `同步临时邮箱失败（HTTP ${tempResponse.status}）`);
+    if (!genericResponse.ok) throw new Error(genericData.error || `同步其他邮箱失败（HTTP ${genericResponse.status}）`);
     const serverManagedBeforeIds = new Set(
       state.accounts
         .filter((account) => ["microsoft", "temp", "generic"].includes(account.source))
@@ -3445,11 +3575,28 @@ async function syncAccountsFromServer({ quiet = false } = {}) {
       const serverIds = new Set(syncedAccounts.map((account) => account.id));
       state.accounts = state.accounts.filter((account) => !serverManagedBeforeIds.has(account.id) || serverIds.has(account.id));
     }
+    state.accountsLoadError = "";
     saveJson(STORAGE_KEYS.accounts, state.accounts);
     renderAll();
   } catch (error) {
-    if (!quiet) addLog(`同步邮箱助手资料失败：${error.message || "unknown"}`, "warning");
+    state.accountsLoadError = error.message || "同步邮箱助手资料失败";
+    if (!quiet) addLog(`同步邮箱助手资料失败：${state.accountsLoadError}`, "warning");
   }
+}
+
+function refreshAccountsFromWorkspace({ quiet = true } = {}) {
+  if (state.accountsSyncPromise) return state.accountsSyncPromise;
+  state.accountsLoading = true;
+  state.accountsLoadError = "";
+  renderSources();
+  state.accountsSyncPromise = Promise.resolve(syncAccountsFromServer({ quiet }))
+    .finally(() => {
+      state.accountsLoading = false;
+      state.accountsLoadedOnce = true;
+      state.accountsSyncPromise = null;
+      renderSources();
+    });
+  return state.accountsSyncPromise;
 }
 
 els.sourceList.addEventListener("change", (event) => {
@@ -3527,7 +3674,7 @@ els.queueBody.addEventListener("click", (event) => {
     const item = state.queue.find((row) => row.id === rowEl?.dataset.id);
     if (item) {
       cancelLoginJob(item).catch((error) => {
-        addLog(`${item.email} 终止失败：${error.message || "unknown"}`, "error", { error_code: "login_cancel_failed", email: item.email });
+        addLog(`${item.email} 终止失败：${error.message || "未知错误"}`, "error", { error_code: "login_cancel_failed", email: item.email });
       });
     }
     return;
@@ -3660,7 +3807,18 @@ els.clearLogs.addEventListener("click", () => {
 
 renderAll();
 updatePickupImportPreview();
+refreshAccountsFromWorkspace({ quiet: true });
 window.GptAccountManagerRuntime.afterFirstPaint(() => {
-  syncAccountsFromServer();
   syncRefreshResults();
+});
+window.addEventListener("pageshow", () => {
+  refreshAccountsFromWorkspace({ quiet: true });
+  syncRefreshResults();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshAccountsFromWorkspace({ quiet: true });
+});
+window.addEventListener("storage", (event) => {
+  if (!event.key || ![STORAGE_KEYS.accounts, STORAGE_KEYS.workspaceId].includes(event.key)) return;
+  refreshAccountsFromWorkspace({ quiet: true });
 });

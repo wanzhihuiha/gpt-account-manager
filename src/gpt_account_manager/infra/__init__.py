@@ -1,0 +1,88 @@
+"""基础设施层入口。
+
+这里先收纳网络和连接这类有副作用的底层能力，
+上层业务只通过这些薄接口间接使用它们。
+"""
+from __future__ import annotations
+
+from .network import (
+    HostHeaderHTTPSConnection,
+    HostHeaderIMAP4SSL,
+    resolve_host_with_doh,
+    dns_overrides_for_url,
+    cached_fallback_ips,
+    create_ip_connection,
+    is_dns_error,
+    mail_network_probe_hosts,
+    network_health_payload,
+    network_error_message,
+    is_loopback_host,
+    is_private_host,
+    validate_remote_base_url,
+    open_with_fast_dns,
+    set_dns_fallback_cache,
+    temporary_dns_overrides,
+    urlopen_with_dns_retry,
+    validate_http_base_url,
+    resolve_http_host_addresses,
+)
+from .http import (
+    check_proxy_egress,
+    http_get_json_status,
+    http_json,
+    http_json_via_ip_fallback,
+    http_json_via_cached_ip_fallback,
+    http_request_form_json,
+    http_request_json,
+    http_text,
+    probe_egress_trace,
+)
+from .proxy import (
+    normalize_proxy_url,
+    playwright_proxy_options,
+    proxy_opener,
+    request_proxy_url,
+    require_login_proxy_url,
+    socks_dependency_error,
+    sticky_proxy_url,
+    temporary_socket_proxy,
+)
+
+__all__ = [
+    "HostHeaderHTTPSConnection",
+    "HostHeaderIMAP4SSL",
+    "http_json_via_ip_fallback",
+    "http_json_via_cached_ip_fallback",
+    "resolve_host_with_doh",
+    "dns_overrides_for_url",
+    "cached_fallback_ips",
+    "check_proxy_egress",
+    "create_ip_connection",
+    "http_get_json_status",
+    "http_json",
+    "http_request_form_json",
+    "http_request_json",
+    "http_text",
+    "is_dns_error",
+    "is_loopback_host",
+    "is_private_host",
+    "mail_network_probe_hosts",
+    "network_health_payload",
+    "network_error_message",
+    "validate_remote_base_url",
+    "open_with_fast_dns",
+    "probe_egress_trace",
+    "set_dns_fallback_cache",
+    "temporary_dns_overrides",
+    "urlopen_with_dns_retry",
+    "validate_http_base_url",
+    "resolve_http_host_addresses",
+    "normalize_proxy_url",
+    "playwright_proxy_options",
+    "proxy_opener",
+    "request_proxy_url",
+    "require_login_proxy_url",
+    "socks_dependency_error",
+    "sticky_proxy_url",
+    "temporary_socket_proxy",
+]

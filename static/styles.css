@@ -1965,6 +1965,11 @@ body.mailbox-controls-collapsed .mailbox-panel {
   color: #8a5a14;
 }
 
+.mailbox-row.refresh-state-running {
+  border-color: rgba(47, 117, 255, 0.34);
+  background: rgba(239, 246, 255, 0.9);
+}
+
 .source-badge.refresh-badge.running {
   background: rgba(47, 117, 255, 0.12);
   color: var(--accent);

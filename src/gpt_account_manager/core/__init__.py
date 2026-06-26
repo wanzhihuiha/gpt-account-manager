@@ -1,11 +1,11 @@
-"""旧状态机入口的兼容转发层。
+"""核心纯函数与状态映射层。
 
-历史调用先不动，新的纯状态规则已经迁到 `gpt_account_manager.core.refresh_state`，
-这里仅保留兼容导出，方便分批迁移调用方。
+这里只放不碰 I/O、不碰网络、低副作用的纯逻辑，
+后续需要共享的状态规则统一从这里导出。
 """
 from __future__ import annotations
 
-from gpt_account_manager.core.refresh_state import (
+from .refresh_state import (
     TERMINAL_REFRESH_STATES,
     REFRESH_STATE_STATUS,
     REFRESH_STATES,

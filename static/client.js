@@ -464,7 +464,7 @@ async function readJsonResponse(response, label) {
     if (response.status === 504 || /cloudflare|gateway timeout|<\/html>/i.test(snippet)) {
       throw new Error(`${label} 网关超时：这一批邮箱取信时间过长，已跳过该批并继续处理后续邮箱。`);
     }
-    throw new Error(`${label} returned non-JSON (${response.status}): ${snippet}`);
+    throw new Error(`${label} 返回了非 JSON 响应（HTTP ${response.status}）：${snippet}`);
   }
 }
 
@@ -1185,7 +1185,6 @@ function mergeServerAccountsSnapshot(items) {
       });
       imported += 1;
     }
-    state.selected.add(item.id);
     if (item.category) ensureCategory(item.category);
   });
   state.accounts = sortAccounts(byId.values());
@@ -1195,7 +1194,6 @@ function mergeServerAccountsSnapshot(items) {
 }
 
 async function syncAccountsFromServer({ silent = false } = {}) {
-  if (!hasAdminToken()) return false;
   try {
     const [accountsResponse, tempResponse, genericResponse] = await Promise.all([
       fetch("/client-api/accounts", { headers: apiHeaders(), cache: "no-store" }),
@@ -1208,13 +1206,13 @@ async function syncAccountsFromServer({ silent = false } = {}) {
       readJsonResponse(genericResponse, "/client-api/generic-accounts"),
     ]);
     if (!accountsResponse.ok) {
-      throw new Error(accountsData.error || accountsResponse.statusText || "服务端账号列表读取失败");
+      throw new Error(accountsData.error || `服务端账号列表读取失败（HTTP ${accountsResponse.status}）`);
     }
     if (!tempResponse.ok) {
-      throw new Error(tempData.error || tempResponse.statusText || "服务端临时邮箱列表读取失败");
+      throw new Error(tempData.error || `服务端临时邮箱列表读取失败（HTTP ${tempResponse.status}）`);
     }
     if (!genericResponse.ok) {
-      throw new Error(genericData.error || genericResponse.statusText || "服务端其他邮箱列表读取失败");
+      throw new Error(genericData.error || `服务端其他邮箱列表读取失败（HTTP ${genericResponse.status}）`);
     }
     const normalized = [
       ...((accountsData.accounts || []).map((item) => normalizeServerMailbox(item, "microsoft")).filter(Boolean)),
@@ -1695,17 +1693,17 @@ function selectedMailboxEmails() {
 }
 
 function activeMessageScope() {
+  if (state.activeMailboxEmail) {
+    return {
+      emails: [state.activeMailboxEmail.toLowerCase()],
+      label: state.activeMailboxEmail,
+    };
+  }
   const selectedEmails = selectedMailboxEmails();
   if (selectedEmails.length) {
     return {
       emails: selectedEmails,
       label: selectedEmails.length === 1 ? selectedEmails[0] : `已选 ${selectedEmails.length} 个邮箱`,
-    };
-  }
-  if (state.activeMailboxEmail) {
-    return {
-      emails: [state.activeMailboxEmail.toLowerCase()],
-      label: state.activeMailboxEmail,
     };
   }
   return { emails: [], label: "" };
@@ -1742,7 +1740,7 @@ async function loadServerMessages({ silent = false } = {}) {
     });
     const data = await readJsonResponse(response, "/client-api/messages");
     if (!response.ok || data.success === false) {
-      throw new Error(data.error || response.statusText || "读取邮件缓存失败");
+      throw new Error(data.error || `读取邮件缓存失败（HTTP ${response.status}）`);
     }
     state.messages = normalizeStoredMessages(data.messages || []).filter((message) => !isIgnoredMessage(message));
     state.messageTotal = Number(data.count ?? state.messages.length);
@@ -2092,7 +2090,7 @@ async function waitForMailFetchJob(jobId, total) {
     });
     const data = await readJsonResponse(response, "/client-api/fetch-status");
     if (!response.ok || data.success === false) {
-      throw new Error(data.error || response.statusText || "收信任务查询失败");
+      throw new Error(data.error || `收信任务查询失败（HTTP ${response.status}）`);
     }
     const job = data.job || {};
     if (job.status !== lastStatus) {
@@ -2961,7 +2959,6 @@ function upsertAccounts(incoming) {
       });
       imported += 1;
     }
-    state.selected.add(account.id);
     if (account.category) ensureCategory(account.category);
   });
   state.accounts = sortAccounts(byId.values());
@@ -3214,7 +3211,7 @@ async function syncMail() {
       body: JSON.stringify(requestPayload),
     });
     const startedData = await readJsonResponse(response, endpoint);
-    if (!response.ok) throw new Error(startedData.error || response.statusText);
+    if (!response.ok) throw new Error(startedData.error || `启动收信任务失败（HTTP ${response.status}）`);
     const jobId = startedData.job?.job_id || startedData.job_id;
     if (!jobId) throw new Error("收信任务没有返回 job_id");
     addClientLog(`后台收信任务已启动：${jobId}`, "info");
@@ -3580,8 +3577,7 @@ initResizableLayouts();
 renderAll();
 setActiveView("mail");
 window.GptAccountManagerRuntime.afterFirstPaint(() => {
-  loadServerMessages({ silent: true });
+  syncAccountsFromServer({ silent: true }).finally(() => {
+    loadServerMessages({ silent: true });
+  });
 });
-
-
-

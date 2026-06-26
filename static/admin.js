@@ -124,7 +124,7 @@ async function readJsonResponse(response, label) {
     return text ? JSON.parse(text) : {};
   } catch {
     const snippet = text.replace(/\s+/g, " ").slice(0, 220);
-    throw new Error(`${label} returned non-JSON (${response.status}): ${snippet}`);
+    throw new Error(`${label} 返回了非 JSON 响应（HTTP ${response.status}）：${snippet}`);
   }
 }
 
@@ -267,7 +267,7 @@ async function persistResultsToServer(rows) {
     }),
   });
   const payload = await readJsonResponse(response, "/api/temp-addresses/import");
-  if (!response.ok) throw new Error(payload.error || response.statusText);
+  if (!response.ok) throw new Error(payload.error || `写入服务器失败（HTTP ${response.status}）`);
   return {
     imported: Number(payload.imported || 0),
     updated: Number(payload.updated || 0),
@@ -280,11 +280,11 @@ async function importResultsToMailAssistant() {
   if (!rows.length) return;
   try {
     const server = await persistResultsToServer(rows);
-    toast(`Imported ${rows.length} temp mailboxes. Server +${server.imported}/~${server.updated}`);
+    toast(`已在本地导入 ${rows.length} 个邮箱，服务器新增 ${server.imported}，更新 ${server.updated}`);
   } catch (error) {
-    toast(`Imported locally. Server sync failed: ${error.message || "unknown error"}`);
+    toast(`已先导入到本地浏览器，但服务器同步失败：${error.message || "未知错误"}`);
   }
-  els.adminStatus.textContent = `Imported ${local.imported + local.updated}`;
+  els.adminStatus.textContent = `已导入 ${local.imported + local.updated} 个`;
 }
 
 function publicPoolPackage(rows) {
@@ -330,7 +330,7 @@ async function pushPublicPool() {
       }),
     });
     const payload = await readJsonResponse(response, "/admin-api/public-pool/push");
-    if (!response.ok) throw new Error(payload.error || response.statusText);
+    if (!response.ok) throw new Error(payload.error || `公益池推送失败（HTTP ${response.status}）`);
     if (payload.package) {
       els.poolExportText.value = JSON.stringify(payload.package, null, 2);
     }
@@ -381,7 +381,7 @@ async function extract() {
       }),
     });
     const payload = await readJsonResponse(response, "/admin-api/extract-jwts");
-    if (!response.ok) throw new Error(payload.error || response.statusText);
+    if (!response.ok) throw new Error(payload.error || `JWT 提取失败（HTTP ${response.status}）`);
     state.results = payload.results || [];
     syncPoolSelectionWithResults();
     els.adminStatus.textContent = "已完成";

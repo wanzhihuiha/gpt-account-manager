@@ -207,7 +207,7 @@
       });
       const text = await response.text();
       if (!response.ok) {
-        throw new Error(text.replace(/\s+/g, " ").slice(0, 220) || response.statusText);
+        throw new Error(text.replace(/\s+/g, " ").slice(0, 220) || `请求失败（HTTP ${response.status}）`);
       }
       return JSON.parse(text || "{}");
     }
@@ -248,4 +248,3 @@
   </script>
 </body>
 </html>
-
