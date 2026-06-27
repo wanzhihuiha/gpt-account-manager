@@ -1686,27 +1686,31 @@ function syncMessageSelectionControls(pageItems = state.messages) {
 }
 
 function selectedMailboxEmails() {
-  return state.accounts
+  const emails = state.accounts
     .filter((account) => state.selected.has(account.id))
     .map((account) => String(account.email || "").trim().toLowerCase())
     .filter(Boolean);
+  return [...new Set(emails)];
 }
 
-function activeMessageScope() {
-  if (state.activeMailboxEmail) {
-    return {
-      emails: [state.activeMailboxEmail.toLowerCase()],
-      label: state.activeMailboxEmail,
-    };
-  }
+function resolveMessageScope() {
   const selectedEmails = selectedMailboxEmails();
   if (selectedEmails.length) {
     return {
+      mode: "selected",
       emails: selectedEmails,
       label: selectedEmails.length === 1 ? selectedEmails[0] : `已选 ${selectedEmails.length} 个邮箱`,
     };
   }
-  return { emails: [], label: "" };
+  const activeEmail = String(state.activeMailboxEmail || "").trim().toLowerCase();
+  if (activeEmail) {
+    return {
+      mode: "active",
+      emails: [activeEmail],
+      label: state.activeMailboxEmail,
+    };
+  }
+  return { mode: "all", emails: [], label: "" };
 }
 
 function messageQueryParams() {
@@ -1720,10 +1724,10 @@ function messageQueryParams() {
     mail_type: els.typeFilter?.value || "all",
     category: els.categoryFilter.value || "all",
   });
-  const scope = activeMessageScope();
-  if (scope.emails.length > 1) {
+  const scope = resolveMessageScope();
+  if (scope.mode === "selected" && scope.emails.length) {
     params.set("accounts", scope.emails.join(","));
-  } else if (scope.emails.length === 1) {
+  } else if (scope.mode === "active" && scope.emails.length) {
     params.set("account", scope.emails[0]);
   }
   return params;
@@ -1812,7 +1816,7 @@ function renderMessages() {
   state.page = Math.min(Math.max(1, state.page), pages);
   const pageItems = messages;
 
-  const scope = activeMessageScope();
+  const scope = resolveMessageScope();
   const mailboxSuffix = scope.label ? ` · ${scope.label}` : "";
   els.pageSummary.textContent = state.messagesLoading ? "读取邮件缓存中" : `${total} 封邮件${mailboxSuffix}`;
   els.pageText.textContent = `${state.page} / ${pages}`;
@@ -2047,13 +2051,13 @@ async function deleteMessage(message) {
 async function deleteFilteredMessages() {
   const total = Number(state.messageTotal || 0);
   if (!total) return;
-  const selectedAccounts = state.accounts.filter((account) => state.selected.has(account.id));
   const typeLabel = selectedMailTypeLabel();
   const typeScope = typeLabel ? `${typeLabel}类型的 ` : "";
-  const scope = selectedAccounts.length
-    ? `当前筛选/选中范围内 ${typeScope}${total} 封邮件`
-    : `当前筛选结果内 ${typeScope}${total} 封邮件`;
-  if (!confirm(`确认删除${scope}？只删除本工具本地缓存，不会删除远端真实邮箱；后续刷新也不会再显示这些邮件。`)) return;
+  const scope = resolveMessageScope();
+  const scopeLabel = scope.mode === "selected"
+    ? (scope.emails.length === 1 ? `已选邮箱 ${scope.label} 范围内` : `${scope.label}范围内`)
+    : (scope.mode === "active" ? `当前邮箱 ${scope.label} 范围内` : "当前筛选结果内");
+  if (!confirm(`确认删除${scopeLabel} ${typeScope}${total} 封邮件？只删除本工具本地缓存，不会删除远端真实邮箱；后续刷新也不会再显示这些邮件。`)) return;
   const filter = Object.fromEntries(messageQueryParams().entries());
   try {
     const response = await fetch("/client-api/messages/delete", {

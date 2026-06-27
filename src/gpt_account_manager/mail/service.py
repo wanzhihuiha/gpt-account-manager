@@ -796,9 +796,10 @@ def filter_messages(messages: list[dict[str, Any]], payload: dict[str, Any]) -> 
             continue
         if category != "all" and category != _coerce_text(message.get("category")).lower():
             continue
-        if accounts and message_account not in accounts:
-            continue
-        if account and account not in message_account:
+        if accounts:
+            if message_account not in accounts:
+                continue
+        elif account and account != message_account:
             continue
         filtered.append(message)
     return sorted(filtered, key=storage_message_sort_value, reverse=True)
